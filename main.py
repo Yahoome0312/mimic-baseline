@@ -31,7 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import Config
 from models import BiomedCLIPLoader, CLIPFineTune
-from datasets import MIMICCXRDataLoader  # Changed from ISIC2019DataLoader
+from datasets import MIMICCXRDataLoader, ChestXray14DataLoader
 from trainers import ZeroShotCLIPInference, CLIPTrainer
 from evaluators import ModelEvaluator
 from utils import set_seed, print_device_info
@@ -89,6 +89,12 @@ def parse_args():
                        help='Focal loss gamma parameter (focus on hard examples)')
     parser.add_argument('--focal_alpha', action='store_true',
                        help='Use class weights with focal loss')
+
+    # External test set arguments
+    parser.add_argument('--external_test', action='store_true',
+                       help='Use external test set (ChestXray14) for evaluation')
+    parser.add_argument('--external_test_path', type=str, default=None,
+                       help='Path to external test dataset (ChestXray14)')
 
     # Other arguments
     parser.add_argument('--seed', type=int, default=42,
@@ -273,20 +279,45 @@ def main():
         train_loader = train_dataset_loader['train']
         val_loader = val_dataset_loader['val']
 
-    # Create test loader
-    test_dataset_loader = data_loader.create_dataloaders(
-        {'test': data_splits['test']},
-        preprocess, tokenizer_wrapped, text_prompts
-    )
-    test_loader = test_dataset_loader['test']
+    # Create test loader (MIMIC or ChestXray14)
+    if args.external_test:
+        print("\n" + "=" * 80)
+        print("Using EXTERNAL TEST SET: ChestXray14")
+        print("=" * 80)
+
+        # Load ChestXray14 test data
+        external_data_path = args.external_test_path if args.external_test_path else r"D:\Data\ChestXray14\CXR8"
+        external_loader = ChestXray14DataLoader(config, data_path=external_data_path)
+        external_image_paths, external_labels = external_loader.load_test_data()
+
+        # Use ChestXray14 class names for text prompts
+        chestxray14_prompts = [f"chest x-ray showing {cls.lower().replace('_', ' ')}"
+                               for cls in external_loader.CHESTXRAY14_CLASSES]
+
+        test_loader = external_loader.create_dataloader(
+            external_image_paths, external_labels,
+            preprocess, tokenizer_wrapped, chestxray14_prompts
+        )
+        test_dataset_name = "ChestXray14"
+    else:
+        # Use MIMIC-CXR test set
+        test_dataset_loader = data_loader.create_dataloaders(
+            {'test': data_splits['test']},
+            preprocess, tokenizer_wrapped, text_prompts
+        )
+        test_loader = test_dataset_loader['test']
+        test_dataset_name = "MIMIC-CXR"
 
     # Store all results
     all_results = []
 
     # Run methods
     if args.method in ['all', 'zeroshot']:
+        experiment_suffix = f"_on_{test_dataset_name}" if args.external_test else ""
+        exp_name = (args.experiment_name + experiment_suffix) if args.experiment_name else f"method1_zeroshot{experiment_suffix}"
+
         result1 = run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader,
-                              experiment_name=args.experiment_name)
+                              experiment_name=exp_name)
         all_results.append(result1)
 
     if args.method in ['all', 'finetune']:
@@ -297,9 +328,12 @@ def main():
         # Get training labels for weighted/focal loss
         _, y_train = data_splits['train']
 
+        experiment_suffix = f"_on_{test_dataset_name}" if args.external_test else ""
+        exp_name = (args.experiment_name + experiment_suffix) if args.experiment_name else f"method2_full_finetune{experiment_suffix}"
+
         result2 = run_finetune(config, clip_model, tokenizer, preprocess,
                               train_loader, val_loader, test_loader,
-                              train_labels=y_train, experiment_name=args.experiment_name)
+                              train_labels=y_train, experiment_name=exp_name)
         all_results.append(result2)
 
     # Compare results if multiple methods were run

@@ -1,81 +1,113 @@
-# ISIC 2019 Skin Lesion Classification with BiomedCLIP
+# Chest X-Ray Multi-Label Classification with BiomedCLIP
 
-A modular PyTorch implementation for ISIC 2019 skin lesion classification using BiomedCLIP, supporting both zero-shot inference and full fine-tuning with CLIP loss.
+A modular PyTorch implementation for chest X-ray multi-label classification using BiomedCLIP, supporting both zero-shot inference and full fine-tuning with multi-dataset evaluation.
 
-## Features
+## 🌟 Key Features
 
-- **Modular Architecture**: Clean separation of concerns with dedicated modules for data, models, training, and evaluation
+- **Multi-Label Classification**: Support for 14-class chest X-ray pathology detection
+- **Multi-Dataset Support**:
+  - **Training**: MIMIC-CXR dataset (377K+ images)
+  - **Testing**: MIMIC-CXR or ChestXray14 (cross-dataset evaluation)
 - **Two Training Methods**:
-  - Method 1: Zero-shot CLIP inference
-  - Method 2: Full fine-tuning with CLIP contrastive loss
-- **Three Loss Functions** for handling class imbalance:
-  - Standard CLIP Loss (baseline)
-  - Weighted CLIP Loss (class re-weighting)
-  - Focal CLIP Loss (hard example mining)
-- **Flexible Configuration**: Easy-to-modify configuration system with command-line argument support
-- **Comprehensive Evaluation**: Detailed metrics including accuracy, balanced accuracy, F1-scores, and per-class analysis
-- **Visualization**: Automatic generation of confusion matrices, training curves, and class distribution plots
+  - Method 1: Zero-shot CLIP inference (no training required)
+  - Method 2: Full fine-tuning with BCE loss for multi-label
+- **Cross-Dataset Evaluation**: Train on MIMIC-CXR, test on ChestXray14 to assess generalization
+- **Modular Architecture**: Clean separation of concerns with dedicated modules
+- **Comprehensive Evaluation**: Multi-label metrics including Hamming Loss, Jaccard Score, per-class AUC-ROC
+- **Flexible Configuration**: Easy-to-modify configuration system with command-line support
+- **Automatic Visualization**: Training curves, class distribution, per-class performance metrics
 
-## Project Structure
+## 📊 Supported Datasets
+
+### MIMIC-CXR (Primary Training Dataset)
+- **Images**: 377,095 chest X-rays
+- **Classes**: 14 CheXpert pathologies
+- **Type**: Multi-label classification
+- **Source**: Beth Israel Deaconess Medical Center
+- **Official splits**: Train (368,945) / Val (2,991) / Test (5,159)
+
+### ChestXray14 (External Test Dataset)
+- **Images**: 25,596 test images
+- **Classes**: 14 pathologies
+- **Type**: Multi-label classification
+- **Source**: NIH Clinical Center
+- **Use case**: Cross-dataset generalization evaluation
+
+## 🏗️ Project Structure
 
 ```
-isic_clip_project/
+mimic-baseline/
 │
-├── config/                      # Configuration module
+├── config/                          # Configuration module
 │   ├── __init__.py
-│   └── config.py               # Configuration classes (paths, model, data, training)
+│   └── config.py                    # Config classes (paths, model, data, training)
 │
-├── datasets/                    # Dataset module
+├── datasets/                        # Dataset module
 │   ├── __init__.py
-│   └── isic_dataset.py         # ISIC 2019 dataset class and data loader
+│   ├── mimic_dataset.py            # MIMIC-CXR dataset loader
+│   ├── chestxray14_dataset.py      # ChestXray14 dataset loader
+│   └── isic_dataset.py             # Legacy ISIC dataset
 │
-├── models/                      # Model module
+├── models/                          # Model module
 │   ├── __init__.py
-│   └── clip_model.py           # CLIP model, loss function, and model loader
+│   └── clip_model.py               # CLIP model, loss functions
 │
-├── trainers/                    # Training module
+├── trainers/                        # Training module
 │   ├── __init__.py
-│   └── clip_trainer.py         # Zero-shot inference and fine-tuning trainer
+│   └── clip_trainer.py             # Zero-shot & fine-tuning trainer
 │
-├── evaluators/                  # Evaluation module
+├── evaluators/                      # Evaluation module
 │   ├── __init__.py
-│   └── evaluator.py            # Model evaluation and result comparison
+│   └── evaluator.py                # Multi-label model evaluation
 │
-├── utils/                       # Utility module
+├── utils/                           # Utility module
 │   ├── __init__.py
-│   └── helpers.py              # Helper functions (early stopping, seed setting, etc.)
+│   └── helpers.py                  # Helper functions
 │
-├── main.py                      # Main entry point
-├── requirements.txt             # Python dependencies
-└── README.md                    # This file
+├── main.py                          # Main entry point
+├── test_mimic_data.py              # Test MIMIC data loading
+├── test_chestxray14_data.py        # Test ChestXray14 data loading
+│
+├── CROSS_DATASET_GUIDE.md          # Detailed cross-dataset testing guide
+├── README_CROSS_DATASET.md         # Cross-dataset feature summary
+├── MIMIC_MIGRATION_SUMMARY.md      # MIMIC migration documentation
+├── requirements.txt                # Python dependencies
+└── README.md                        # This file
 ```
 
-## Installation
+## 🚀 Quick Start
 
 ### Prerequisites
 
 - Python 3.8+
-- CUDA-capable GPU (recommended)
+- CUDA-capable GPU (recommended, 16GB+ VRAM)
+- 32GB+ RAM (for full MIMIC dataset)
 - BiomedCLIP checkpoint files
 
-### Setup
+### Installation
 
-1. Clone or download this project:
+1. **Navigate to project directory**:
 ```bash
-cd C:\Users\admin\Desktop\baseline\isic2019\isic_clip_project
+cd C:\Users\admin\Desktop\mimic-baseline
 ```
 
-2. Install dependencies:
+2. **Install dependencies**:
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Download ISIC 2019 dataset:
-   - Download from [ISIC 2019 Challenge](https://challenge.isic-archive.com/data/)
-   - Place images in `D:\Data\isic2019\ISIC_2019_Training_Input\`
-   - Place ground truth CSV in `D:\Data\isic2019\ISIC_2019_Training_GroundTruth.csv`
+3. **Download datasets**:
+   - **MIMIC-CXR**: Place in `D:\Data\MIMIC\`
+     - `MIMIC-CXR-JPG/files/` (images)
+     - `mimic-cxr-2.0.0-chexpert.csv` (labels)
+     - `mimic-cxr-2.0.0-split.csv` (official splits)
 
-4. Ensure BiomedCLIP checkpoints are available at:
+   - **ChestXray14** (optional, for cross-dataset testing): Place in `D:\Data\ChestXray14\CXR8\`
+     - `images/images/` (test images)
+     - `Data_Entry_2017_v2020.csv` (labels)
+     - `test_list.txt` (test split)
+
+4. **Ensure BiomedCLIP checkpoints** at:
    ```
    C:\Users\admin\Desktop\baseline\bimedclip-zs\checkpoints\
    ├── open_clip_config.json
@@ -84,266 +116,300 @@ pip install -r requirements.txt
    └── tokenizer_config.json
    ```
 
-## Usage
+### Test Data Loading
 
-### Basic Usage
-
-Run with default configuration (both zero-shot and fine-tuning):
+**Test MIMIC-CXR data**:
 ```bash
-python main.py
+python test_mimic_data.py
 ```
 
-### Run Specific Methods
-
-Run only zero-shot inference:
+**Test ChestXray14 data** (optional):
 ```bash
-python main.py --method zeroshot
+python test_chestxray14_data.py
 ```
 
-Run only fine-tuning:
+## 📖 Usage
+
+### Basic Training (MIMIC-CXR)
+
 ```bash
+# Full training pipeline
 python main.py --method finetune
+
+# Zero-shot only (no training)
+python main.py --method zeroshot
+
+# Both methods
+python main.py --method all
 ```
 
-### Custom Paths
-
-Specify custom data path:
-```bash
-python main.py --data_path D:\Data\my_isic2019
-```
-
-Specify custom checkpoint directory:
-```bash
-python main.py --checkpoint_dir C:\Models\biomedclip
-```
-
-Specify custom output directory:
-```bash
-python main.py --output_dir C:\Results\my_experiment
-```
-
-### Training Parameters
-
-Modify batch size and epochs:
-```bash
-python main.py --batch_size 32 --epochs 50
-```
-
-Adjust learning rates:
-```bash
-python main.py --lr_image 5e-6 --lr_text 1e-4
-```
-
-Set early stopping patience:
-```bash
-python main.py --patience 15
-```
-
-### Data Split Configuration
-
-Modify test/validation split:
-```bash
-python main.py --test_size 0.15 --val_size 0.15
-```
-
-### Loss Function Selection
-
-The project supports three loss functions for handling class imbalance:
-
-Use **Weighted CLIP Loss** (recommended for imbalanced datasets):
-```bash
-python main.py --method finetune --loss_type weighted
-```
-
-Use **Focal CLIP Loss** (focuses on hard examples):
-```bash
-python main.py --method finetune --loss_type focal --focal_gamma 2.0
-```
-
-Use **Focal Loss with class weights** (best for severe imbalance):
-```bash
-python main.py --method finetune --loss_type focal --focal_gamma 2.5 --focal_alpha
-```
-
-Customize class weight computation:
-```bash
-python main.py --loss_type weighted --class_weight_method effective
-```
-
-See `LOSS_FUNCTIONS_GUIDE.md` for detailed explanations and recommendations.
-
-### Complete Example
+### Cross-Dataset Testing (MIMIC → ChestXray14)
 
 ```bash
-python main.py \
-    --method finetune \
-    --data_path D:\Data\isic2019 \
-    --output_dir C:\Results\experiment_001 \
-    --batch_size 32 \
-    --epochs 100 \
-    --lr_image 1e-5 \
-    --lr_text 1e-4 \
-    --patience 10 \
-    --seed 42
+# Train on MIMIC, test on ChestXray14
+python main.py --method finetune --external_test
+
+# Zero-shot on ChestXray14 (no training)
+python main.py --method zeroshot --external_test
 ```
 
-## Command-Line Arguments
+### Custom Configuration
+
+**Modify training parameters**:
+```bash
+python main.py --method finetune \
+  --batch_size 32 \
+  --epochs 50 \
+  --lr_image 5e-6 \
+  --lr_text 1e-4
+```
+
+**Custom paths**:
+```bash
+python main.py --method finetune \
+  --data_path "D:\Data\MIMIC" \
+  --output_dir "C:\Results\my_experiment"
+```
+
+**Cross-dataset with custom path**:
+```bash
+python main.py --method finetune \
+  --external_test \
+  --external_test_path "E:\MyData\ChestXray14"
+```
+
+**Experiment naming**:
+```bash
+python main.py --method finetune \
+  --experiment_name "mimic_baseline_v1"
+```
+
+## 📋 Command-Line Arguments
 
 ### Method Selection
-- `--method`: Choose method to run (`all`, `zeroshot`, `finetune`)
+- `--method`: Training method (`all`, `zeroshot`, `finetune`)
 
 ### Path Arguments
-- `--data_path`: Path to ISIC 2019 data directory
-- `--checkpoint_dir`: Path to BiomedCLIP checkpoint directory
-- `--output_dir`: Path to output directory
-- `--experiment_name`: Experiment name for saved files (customizes filenames)
+- `--data_path`: Path to MIMIC-CXR directory
+- `--checkpoint_dir`: Path to BiomedCLIP checkpoints
+- `--output_dir`: Path to save results
+- `--experiment_name`: Custom experiment name
+
+### Cross-Dataset Testing
+- `--external_test`: Use ChestXray14 as external test set
+- `--external_test_path`: Custom path to ChestXray14
 
 ### Data Arguments
-- `--batch_size`: Batch size for training (default: 64)
-- `--num_workers`: Number of data loading workers (default: 4)
-- `--test_size`: Test set size ratio (default: 0.2)
-- `--val_size`: Validation set size ratio (default: 0.1)
+- `--batch_size`: Batch size (default: 32)
+- `--num_workers`: Data loading workers (default: 4)
+- `--test_size`: Test set ratio (default: 0.2)
+- `--val_size`: Validation set ratio (default: 0.1)
 
 ### Training Arguments
-- `--epochs`: Number of training epochs (default: 100)
+- `--epochs`: Training epochs (default: 100)
 - `--lr_image`: Learning rate for image encoder (default: 1e-5)
 - `--lr_text`: Learning rate for text embeddings (default: 1e-4)
 - `--weight_decay`: Weight decay (default: 0.01)
 - `--patience`: Early stopping patience (default: 10)
 
-### Other Arguments
-- `--seed`: Random seed for reproducibility (default: 42)
+### Loss Function (for single-label datasets)
+- `--loss_type`: Loss type (`standard`, `weighted`, `focal`)
+- `--focal_gamma`: Focal loss gamma (default: 2.0)
+
+### Other
+- `--seed`: Random seed (default: 42)
 - `--gpu`: GPU ID to use
 
-## Configuration
+## 📊 Classes and Labels
 
-You can also modify the default configuration directly in `config/config.py`:
+### MIMIC-CXR (14 CheXpert Classes)
 
-```python
-from config import Config
+| Class | Description | Prevalence |
+|-------|-------------|------------|
+| Atelectasis | Lung collapse | 17.25% |
+| Cardiomegaly | Enlarged heart | 17.06% |
+| Consolidation | Lung tissue solidification | 3.89% |
+| Edema | Fluid accumulation | 9.70% |
+| Enlarged Cardiomediastinum | Widened mediastinum | 2.66% |
+| Fracture | Bone fracture | 2.02% |
+| Lung Lesion | Abnormal lung tissue | 2.86% |
+| Lung Opacity | Lung cloudiness | 20.27% |
+| **No Finding** | Normal X-ray | **38.01%** |
+| Pleural Effusion | Fluid in pleural space | 20.41% |
+| Pleural Other | Other pleural abnormality | 0.92% |
+| Pneumonia | Lung infection | 6.95% |
+| Pneumothorax | Collapsed lung | 3.78% |
+| Support Devices | Medical devices visible | 22.29% |
 
-# Create custom configuration
-config = Config()
+### ChestXray14 (14 Pathologies)
 
-# Modify paths
-config.paths.base_data_path = r"D:\Data\my_isic2019"
-config.paths.output_dir = r"C:\Results\my_experiment"
+| Class | Description | Test Set % |
+|-------|-------------|------------|
+| Atelectasis | Lung collapse | 12.81% |
+| Cardiomegaly | Enlarged heart | 4.18% |
+| Consolidation | Lung solidification | 7.09% |
+| Edema | Fluid accumulation | 3.61% |
+| Effusion | Pleural fluid | 18.20% |
+| Emphysema | Lung damage | 4.27% |
+| Fibrosis | Lung scarring | 1.70% |
+| Hernia | Tissue protrusion | 0.34% |
+| **Infiltration** | Lung infiltrates | **23.88%** |
+| Mass | Tumor/mass | 6.83% |
+| Nodule | Small nodule | 6.34% |
+| Pleural_Thickening | Thickened pleura | 4.47% |
+| Pneumonia | Lung infection | 2.17% |
+| Pneumothorax | Collapsed lung | 10.41% |
 
-# Modify training parameters
-config.training.epochs = 50
-config.training.learning_rate_image = 5e-6
-config.data.batch_size = 32
-```
+## 📈 Evaluation Metrics
 
-## Output Files
+### Multi-Label Metrics
+- **Subset Accuracy**: Exact match ratio (all labels correct)
+- **Hamming Loss**: Average label error rate
+- **Jaccard Score**: Intersection over Union (samples average)
+- **Precision/Recall/F1** (per-class, macro, micro)
+- **AUC-ROC** (per-class, macro average)
 
-The program generates the following outputs in the specified output directory:
+### Aggregation Methods
+- **Macro**: Equal weight to each class
+- **Micro**: Equal weight to each sample
+- **Samples**: Average performance per image
+
+## 🎯 Output Files
+
+Results are saved in: `C:\Users\admin\Desktop\mimic-baseline\results\mimic_clip\`
+
+### MIMIC-CXR Testing
+- `method1_zeroshot_results.json`
+- `method2_full_finetune_results.json`
+- `method2_best_model.pth`
+- Training curves and performance plots
+
+### ChestXray14 Testing (with `--external_test`)
+- `method1_zeroshot_on_ChestXray14_results.json`
+- `method2_full_finetune_on_ChestXray14_results.json`
+- Cross-dataset performance metrics
 
 ### Visualizations
-- `class_distribution.png`: Dataset class distribution bar chart
-- `training_curves.png`: Training and validation loss/accuracy curves
-- `method1_zeroshot_confusion_matrix.png`: Zero-shot confusion matrix
-- `method2_full_finetune_confusion_matrix.png`: Fine-tuning confusion matrix
-- `method1_zeroshot_per_class_recall.png`: Zero-shot per-class recall
-- `method2_full_finetune_per_class_recall.png`: Fine-tuning per-class recall
-- `methods_comparison.png`: Comparison of different methods
+- `class_distribution.png`: Dataset statistics
+- `training_curves.png`: Loss and accuracy over epochs
+- `*_metrics.png`: Per-class performance (multi-label)
+- `methods_comparison.png`: Method comparison
 
-### Results
-- `method1_zeroshot_results.json`: Zero-shot evaluation results
-- `method2_full_finetune_results.json`: Fine-tuning evaluation results
-- `methods_comparison.csv`: Comparison table of all methods
+## 🔬 Model Details
 
-### Models
-- `method2_best_model.pth`: Best fine-tuned model weights
+### Method 1: Zero-Shot CLIP
+- Uses pre-trained BiomedCLIP (no training)
+- Text prompts: `"chest x-ray showing {pathology}"`
+- Multi-label: Sigmoid activation + 0.5 threshold
+- Automatically adapts to different class names
 
-## Dataset Information
+### Method 2: Fine-Tuning
+- Fine-tunes image encoder + learnable text embeddings
+- **Multi-label loss**: Binary Cross-Entropy (BCE)
+- Separate learning rates (image vs. text)
+- Early stopping on validation F1-score
+- Cosine annealing LR scheduler
 
-### ISIC 2019 Classes (8 classes, UNK excluded)
+## 🌍 Cross-Dataset Evaluation
 
-| Class Code | Description |
-|------------|-------------|
-| MEL | Melanoma |
-| NV | Melanocytic nevus |
-| BCC | Basal cell carcinoma |
-| AK | Actinic keratosis |
-| BKL | Benign keratosis |
-| DF | Dermatofibroma |
-| VASC | Vascular lesion |
-| SCC | Squamous cell carcinoma |
+### Why Cross-Dataset Testing?
 
-### Data Split
+Evaluates **generalization** and **transfer learning** capability:
+- Different hospitals → different image characteristics
+- Different labeling methods → domain shift
+- Performance drop indicates model robustness
 
-By default:
-- Training: 70% of data
-- Validation: 10% of data
-- Test: 20% of data
+### Expected Performance
 
-All splits use stratified sampling to maintain class balance.
+| Metric | MIMIC Test | ChestXray14 Test | Drop |
+|--------|------------|------------------|------|
+| F1 (Macro) | 0.60-0.75 | 0.40-0.60 | ~15-20% |
+| AUC (Macro) | 0.75-0.85 | 0.65-0.75 | ~10% |
+| Subset Acc | 25-35% | 15-25% | ~10% |
 
-## Evaluation Metrics
+### Zero-Shot Adaptation
 
-The following metrics are computed:
+No manual label mapping needed! CLIP automatically understands:
+- MIMIC: `"pleural effusion"` ↔ ChestXray14: `"effusion"`
+- MIMIC: `"lung opacity"` ↔ ChestXray14: `"infiltration"`
 
-- **Accuracy**: Overall classification accuracy
-- **Balanced Accuracy**: Average recall across all classes (handles class imbalance)
-- **F1-score (Macro)**: Unweighted average of per-class F1 scores
-- **F1-score (Weighted)**: Weighted average by class support
-- **Per-class F1**: Individual F1 score for each class
-- **Per-class Recall**: Individual recall for each class
-- **Confusion Matrix**: Full confusion matrix
+Text-based semantic matching handles domain differences.
 
-## Model Details
+## 📚 Documentation
 
-### Method 1: Zero-shot CLIP
-- Uses pre-trained BiomedCLIP without any training
-- Compares image features with text prompt embeddings
-- Text prompts: "this is a photo of {class_description}"
+- **`CROSS_DATASET_GUIDE.md`**: Detailed cross-dataset testing guide
+- **`README_CROSS_DATASET.md`**: Cross-dataset feature summary
+- **`MIMIC_MIGRATION_SUMMARY.md`**: MIMIC dataset migration details
+- **`LOSS_FUNCTIONS_GUIDE.md`**: Loss function explanations
+- **`SAVE_PATH_GUIDE.md`**: File naming conventions
 
-### Method 2: Full Fine-tuning with CLIP Loss
-- Fine-tunes both image encoder and learnable text embeddings
-- Uses contrastive CLIP loss (image-to-text and text-to-image)
-- Separate learning rates for image encoder and text embeddings
-- Early stopping based on validation F1-score (macro)
-- Cosine annealing learning rate scheduler
-
-## Troubleshooting
+## ⚠️ Troubleshooting
 
 ### CUDA Out of Memory
-Reduce batch size:
 ```bash
+# Reduce batch size
 python main.py --batch_size 16
 ```
 
 ### Data Not Found
-Check paths in configuration:
 ```bash
-python main.py --data_path YOUR_DATA_PATH --checkpoint_dir YOUR_CHECKPOINT_PATH
+# Verify paths
+python test_mimic_data.py
+python test_chestxray14_data.py
+
+# Or specify custom path
+python main.py --data_path "your/path/to/MIMIC"
 ```
 
 ### Slow Training
-Reduce number of workers or use GPU:
-```bash
-python main.py --num_workers 2 --gpu 0
-```
+- Reduce `--num_workers` (e.g., 2)
+- Use smaller subset for testing
+- Ensure GPU is being used (`nvidia-smi`)
 
-## Citation
+### ChestXray14 Images Missing
+Check that images are in: `D:\Data\ChestXray14\CXR8\images\images\`
+
+## 🎓 Citation
 
 If you use this code, please cite:
 
 ```bibtex
-@misc{isic2019_biomedclip,
-  title={ISIC 2019 Skin Lesion Classification with BiomedCLIP},
+@misc{chest_xray_biomedclip,
+  title={Multi-Label Chest X-Ray Classification with BiomedCLIP},
   author={Your Name},
-  year={2024}
+  year={2025}
+}
+
+@article{johnson2019mimic,
+  title={MIMIC-CXR, a de-identified publicly available database of chest radiographs},
+  author={Johnson, Alistair EW and others},
+  journal={Scientific data},
+  year={2019}
+}
+
+@inproceedings{wang2017chestx,
+  title={ChestX-ray8: Hospital-scale chest x-ray database},
+  author={Wang, Xiaosong and others},
+  booktitle={CVPR},
+  year={2017}
 }
 ```
 
-## License
+## 📄 License
 
-This project is for research purposes only.
+This project is for research and educational purposes only.
 
-## Acknowledgments
+## 🙏 Acknowledgments
 
-- ISIC 2019 Challenge organizers for the dataset
+- MIMIC-CXR team at MIT and Beth Israel Deaconess Medical Center
+- NIH Clinical Center for ChestXray14 dataset
 - BiomedCLIP authors for the pre-trained model
 - OpenAI for the original CLIP architecture
+
+---
+
+**Project Status**: ✅ Fully functional with multi-dataset support
+
+**Last Updated**: 2025-12-15
+
+For questions or issues, please check the detailed guides in the documentation folder.
