@@ -13,11 +13,11 @@ class PathConfig:
     # Model checkpoint path
     local_checkpoints_dir: str = r"C:\Users\admin\Desktop\baseline\bimedclip-zs\checkpoints"
 
-    # Data path
-    base_data_path: str = r"D:\Data\isic2019"
+    # Data path - Changed to MIMIC-CXR dataset
+    base_data_path: str = r"D:\Data\MIMIC"
 
-    # Output path
-    output_dir: str = r"C:\Users\admin\Desktop\baseline\isic2019\results\isic_clip_loss"
+    # Output path - Updated for MIMIC results
+    output_dir: str = r"C:\Users\admin\Desktop\mimic-baseline\results\mimic_clip"
 
     def __post_init__(self):
         """Create output directory if it doesn't exist"""
@@ -35,11 +35,13 @@ class ModelConfig:
 @dataclass
 class DataConfig:
     """Data configuration"""
-    batch_size: int = 64
+    batch_size: int = 32  # Reduced for MIMIC-CXR (larger images)
     num_workers: int = 4
     test_size: float = 0.2
     val_size: float = 0.1
     random_state: int = 42
+    use_provided_split: bool = True  # Use official MIMIC-CXR split
+    label_policy: str = 'ignore_uncertain'  # How to handle uncertain labels in MIMIC
 
 
 @dataclass
@@ -68,18 +70,27 @@ class TrainingConfig:
 
 @dataclass
 class ClassConfig:
-    """Class configuration for ISIC 2019"""
-    # Class descriptions (8 classes, UNK excluded)
+    """Class configuration for MIMIC-CXR (CheXpert labels)"""
+    # Class descriptions (14 CheXpert classes for chest X-ray)
     class_descriptions: Dict[str, str] = field(default_factory=lambda: {
-        'MEL': 'melanoma',
-        'NV': 'melanocytic nevus',
-        'BCC': 'basal cell carcinoma',
-        'AK': 'actinic keratosis',
-        'BKL': 'benign keratosis',
-        'DF': 'dermatofibroma',
-        'VASC': 'vascular lesion',
-        'SCC': 'squamous cell carcinoma',
+        'Atelectasis': 'atelectasis',
+        'Cardiomegaly': 'cardiomegaly',
+        'Consolidation': 'consolidation',
+        'Edema': 'edema',
+        'Enlarged Cardiomediastinum': 'enlarged cardiomediastinum',
+        'Fracture': 'fracture',
+        'Lung Lesion': 'lung lesion',
+        'Lung Opacity': 'lung opacity',
+        'No Finding': 'no finding',
+        'Pleural Effusion': 'pleural effusion',
+        'Pleural Other': 'pleural abnormality',
+        'Pneumonia': 'pneumonia',
+        'Pneumothorax': 'pneumothorax',
+        'Support Devices': 'support devices',
     })
+
+    # Task type: 'multi-label' for MIMIC-CXR, 'single-label' for ISIC
+    task_type: str = 'multi-label'
 
     @property
     def class_names(self) -> List[str]:
@@ -91,12 +102,13 @@ class ClassConfig:
         """Get number of classes"""
         return len(self.class_descriptions)
 
-    def get_text_prompts(self, template: str = "this is a photo of {description}") -> List[str]:
+    def get_text_prompts(self, template: str = "chest x-ray showing {description}") -> List[str]:
         """
         Generate text prompts for each class
 
         Args:
             template: Prompt template, use {description} as placeholder
+                     Default changed to chest X-ray specific template
 
         Returns:
             List of text prompts

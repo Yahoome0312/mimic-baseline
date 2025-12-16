@@ -13,7 +13,12 @@ from sklearn.metrics import (
     accuracy_score,
     balanced_accuracy_score,
     classification_report,
-    f1_score
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+    hamming_loss,
+    jaccard_score
 )
 
 
@@ -31,15 +36,16 @@ class ModelEvaluator:
         self.class_names = config.classes.class_names
         os.makedirs(output_dir, exist_ok=True)
 
-    def evaluate(self, y_true, y_pred, method_name, save_path=None):
+    def evaluate(self, y_true, y_pred, method_name, save_path=None, y_scores=None):
         """
-        Evaluate model performance
+        Evaluate model performance (supports both single-label and multi-label)
 
         Args:
             y_true: True labels
             y_pred: Predicted labels
             method_name: Method name for display
             save_path: Prefix for saved files
+            y_scores: Prediction scores (for AUC calculation in multi-label)
 
         Returns:
             Dictionary containing evaluation results
@@ -48,14 +54,23 @@ class ModelEvaluator:
         print(f"{method_name} - Evaluation Results")
         print("=" * 80)
 
+        is_multilabel = self.config.classes.task_type == 'multi-label'
+
+        if is_multilabel:
+            return self._evaluate_multilabel(y_true, y_pred, method_name, save_path, y_scores)
+        else:
+            return self._evaluate_singlelabel(y_true, y_pred, method_name, save_path)
+
+    def _evaluate_singlelabel(self, y_true, y_pred, method_name, save_path):
+        """Evaluate single-label classification"""
         # Calculate various metrics
         accuracy = accuracy_score(y_true, y_pred)
         balanced_acc = balanced_accuracy_score(y_true, y_pred)
 
         # Calculate F1 score for each class
-        f1_per_class = f1_score(y_true, y_pred, average=None)
-        f1_macro = f1_score(y_true, y_pred, average='macro')
-        f1_weighted = f1_score(y_true, y_pred, average='weighted')
+        f1_per_class = f1_score(y_true, y_pred, average=None, zero_division=0)
+        f1_macro = f1_score(y_true, y_pred, average='macro', zero_division=0)
+        f1_weighted = f1_score(y_true, y_pred, average='weighted', zero_division=0)
 
         # Print results
         print(f"\nOverall Metrics:")
@@ -70,7 +85,7 @@ class ModelEvaluator:
 
         # Detailed classification report
         print(f"\nDetailed Classification Report:")
-        report = classification_report(y_true, y_pred, target_names=self.class_names, digits=4)
+        report = classification_report(y_true, y_pred, target_names=self.class_names, digits=4, zero_division=0)
         print(report)
 
         # Confusion matrix
@@ -100,7 +115,7 @@ class ModelEvaluator:
             'recall_per_class': per_class_recall,
             'samples_per_class': per_class_count,
             'confusion_matrix': cm.tolist(),
-            'classification_report': classification_report(y_true, y_pred, target_names=self.class_names, output_dict=True)
+            'classification_report': classification_report(y_true, y_pred, target_names=self.class_names, output_dict=True, zero_division=0)
         }
 
         if save_path:
@@ -108,6 +123,145 @@ class ModelEvaluator:
                 json.dump(results, f, indent=2)
 
         return results
+
+    def _evaluate_multilabel(self, y_true, y_pred, method_name, save_path, y_scores=None):
+        """Evaluate multi-label classification"""
+        # Convert to numpy arrays
+        y_true = np.array(y_true)
+        y_pred = np.array(y_pred)
+
+        # Overall multi-label metrics
+        subset_accuracy = accuracy_score(y_true, y_pred)  # Exact match ratio
+        hamming = hamming_loss(y_true, y_pred)  # Hamming loss
+        jaccard = jaccard_score(y_true, y_pred, average='samples', zero_division=0)  # Jaccard similarity
+
+        # Per-class metrics
+        precision_per_class = precision_score(y_true, y_pred, average=None, zero_division=0)
+        recall_per_class = recall_score(y_true, y_pred, average=None, zero_division=0)
+        f1_per_class = f1_score(y_true, y_pred, average=None, zero_division=0)
+
+        # Macro/micro averages
+        precision_macro = precision_score(y_true, y_pred, average='macro', zero_division=0)
+        recall_macro = recall_score(y_true, y_pred, average='macro', zero_division=0)
+        f1_macro = f1_score(y_true, y_pred, average='macro', zero_division=0)
+
+        precision_micro = precision_score(y_true, y_pred, average='micro', zero_division=0)
+        recall_micro = recall_score(y_true, y_pred, average='micro', zero_division=0)
+        f1_micro = f1_score(y_true, y_pred, average='micro', zero_division=0)
+
+        # AUC scores (if scores provided)
+        auc_per_class = {}
+        auc_macro = None
+        if y_scores is not None:
+            y_scores = np.array(y_scores)
+            try:
+                for i, cls in enumerate(self.class_names):
+                    if y_true[:, i].sum() > 0:  # Only if class has positive samples
+                        auc_per_class[cls] = roc_auc_score(y_true[:, i], y_scores[:, i])
+                    else:
+                        auc_per_class[cls] = 0.0
+
+                # Try to calculate macro AUC
+                auc_macro = roc_auc_score(y_true, y_scores, average='macro')
+            except Exception as e:
+                print(f"Warning: Could not calculate AUC scores: {e}")
+                auc_per_class = {cls: 0.0 for cls in self.class_names}
+
+        # Print results
+        print(f"\nOverall Multi-Label Metrics:")
+        print(f"  Subset Accuracy (Exact Match): {subset_accuracy:.4f}")
+        print(f"  Hamming Loss: {hamming:.4f}")
+        print(f"  Jaccard Score (Samples Avg): {jaccard:.4f}")
+        print(f"  Precision (Macro): {precision_macro:.4f}")
+        print(f"  Recall (Macro): {recall_macro:.4f}")
+        print(f"  F1-score (Macro): {f1_macro:.4f}")
+        print(f"  Precision (Micro): {precision_micro:.4f}")
+        print(f"  Recall (Micro): {recall_micro:.4f}")
+        print(f"  F1-score (Micro): {f1_micro:.4f}")
+        if auc_macro is not None:
+            print(f"  AUC-ROC (Macro): {auc_macro:.4f}")
+
+        print(f"\nPer-Class Metrics:")
+        print(f"{'Class':<30} {'Precision':<12} {'Recall':<12} {'F1-Score':<12} {'AUC-ROC':<12} {'Support':<12}")
+        print("=" * 100)
+        for i, cls in enumerate(self.class_names):
+            support = int(y_true[:, i].sum())
+            auc_str = f"{auc_per_class.get(cls, 0.0):.4f}" if auc_per_class else "N/A"
+            print(f"{cls:<30} {precision_per_class[i]:<12.4f} {recall_per_class[i]:<12.4f} "
+                  f"{f1_per_class[i]:<12.4f} {auc_str:<12} {support:<12}")
+
+        # Plot per-class metrics
+        if save_path:
+            self._plot_multilabel_metrics(
+                precision_per_class, recall_per_class, f1_per_class,
+                y_true, method_name, save_path
+            )
+
+        # Aggregate results
+        results = {
+            'method': method_name,
+            'task_type': 'multi-label',
+            'subset_accuracy': float(subset_accuracy),
+            'hamming_loss': float(hamming),
+            'jaccard_score': float(jaccard),
+            'precision_macro': float(precision_macro),
+            'recall_macro': float(recall_macro),
+            'f1_macro': float(f1_macro),
+            'precision_micro': float(precision_micro),
+            'recall_micro': float(recall_micro),
+            'f1_micro': float(f1_micro),
+            'precision_per_class': {self.class_names[i]: float(precision_per_class[i]) for i in range(len(self.class_names))},
+            'recall_per_class': {self.class_names[i]: float(recall_per_class[i]) for i in range(len(self.class_names))},
+            'f1_per_class': {self.class_names[i]: float(f1_per_class[i]) for i in range(len(self.class_names))},
+            'support_per_class': {self.class_names[i]: int(y_true[:, i].sum()) for i in range(len(self.class_names))},
+        }
+
+        if auc_macro is not None:
+            results['auc_macro'] = float(auc_macro)
+            results['auc_per_class'] = auc_per_class
+
+        if save_path:
+            with open(os.path.join(self.output_dir, f'{save_path}_results.json'), 'w') as f:
+                json.dump(results, f, indent=2)
+
+        return results
+
+    def _plot_multilabel_metrics(self, precision, recall, f1, y_true, method_name, save_path):
+        """Plot multi-label per-class metrics"""
+        fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+
+        # Support per class
+        support = [int(y_true[:, i].sum()) for i in range(len(self.class_names))]
+
+        # Precision
+        axes[0].barh(self.class_names, precision, color='skyblue')
+        axes[0].set_xlabel('Precision')
+        axes[0].set_title('Precision per Class')
+        axes[0].set_xlim([0, 1])
+        for i, (p, s) in enumerate(zip(precision, support)):
+            axes[0].text(p + 0.02, i, f'{p:.3f} (n={s})', va='center')
+
+        # Recall
+        axes[1].barh(self.class_names, recall, color='lightcoral')
+        axes[1].set_xlabel('Recall')
+        axes[1].set_title('Recall per Class')
+        axes[1].set_xlim([0, 1])
+        for i, (r, s) in enumerate(zip(recall, support)):
+            axes[1].text(r + 0.02, i, f'{r:.3f} (n={s})', va='center')
+
+        # F1-score
+        axes[2].barh(self.class_names, f1, color='lightgreen')
+        axes[2].set_xlabel('F1-Score')
+        axes[2].set_title('F1-Score per Class')
+        axes[2].set_xlim([0, 1])
+        for i, (f, s) in enumerate(zip(f1, support)):
+            axes[2].text(f + 0.02, i, f'{f:.3f} (n={s})', va='center')
+
+        fig.suptitle(f'{method_name} - Per-Class Metrics', fontsize=16, fontweight='bold')
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.output_dir, f'{save_path}_metrics.png'), dpi=150, bbox_inches='tight')
+        plt.close()
+        print(f"Multi-label metrics plot saved to: {save_path}_metrics.png")
 
     def _plot_confusion_matrix(self, cm, method_name, save_path):
         """Plot confusion matrix"""

@@ -4,10 +4,12 @@ CLIP Trainer Module
 
 import os
 import torch
+import torch.nn as nn
 import torch.optim as optim
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-from sklearn.metrics import f1_score
+import numpy as np
+from sklearn.metrics import f1_score, roc_auc_score
 
 from ..models import CLIPLoss, WeightedCLIPLoss, FocalCLIPLoss, CLIPFineTune, compute_class_weights
 from ..utils import EarlyStopping
@@ -36,9 +38,9 @@ class ZeroShotCLIPInference:
             test_loader: Test data loader
 
         Returns:
-            all_predictions: List of predictions
-            all_labels: List of true labels
-            all_confidences: List of confidence scores
+            all_predictions: List of predictions (multi-label: N x num_classes)
+            all_labels: List of true labels (multi-label: N x num_classes)
+            all_scores: List of prediction scores
         """
         print("\n" + "=" * 80)
         print("Method 1: Zero-shot CLIP")
@@ -60,9 +62,11 @@ class ZeroShotCLIPInference:
         # Zero-shot prediction
         all_predictions = []
         all_labels = []
-        all_confidences = []
+        all_scores = []
 
         print("\nPerforming Zero-shot classification...")
+        is_multilabel = self.config.classes.task_type == 'multi-label'
+
         with torch.no_grad():
             for images, _, labels in tqdm(test_loader, desc="Zero-shot inference"):
                 images = images.to(self.device)
@@ -70,18 +74,24 @@ class ZeroShotCLIPInference:
                 # Get features and logits
                 image_features, text_features, logit_scale = self.model(images, texts)
 
-                # Calculate similarity and probability
+                # Calculate similarity
                 logits = (logit_scale * image_features @ text_features.t()).detach()
-                probs = logits.softmax(dim=-1)
 
-                # Get predicted class and confidence
-                confidences, predictions = probs.max(dim=-1)
+                if is_multilabel:
+                    # Multi-label: use sigmoid and threshold at 0.5
+                    probs = torch.sigmoid(logits)
+                    predictions = (probs > 0.5).float()
+                    all_scores.extend(probs.cpu().numpy())
+                else:
+                    # Single-label: use softmax and argmax
+                    probs = logits.softmax(dim=-1)
+                    scores, predictions = probs.max(dim=-1)
+                    all_scores.extend(scores.cpu().numpy())
 
                 all_predictions.extend(predictions.cpu().numpy())
-                all_labels.extend(labels.numpy())
-                all_confidences.extend(confidences.cpu().numpy())
+                all_labels.extend(labels.cpu().numpy())
 
-        return all_predictions, all_labels, all_confidences
+        return all_predictions, all_labels, all_scores
 
 
 class CLIPTrainer:
@@ -210,6 +220,13 @@ class CLIPTrainer:
         """Train one epoch"""
         self.model.train()
         total_loss = 0
+        is_multilabel = self.config.classes.task_type == 'multi-label'
+
+        # For multi-label accuracy tracking
+        if is_multilabel:
+            all_preds = []
+            all_labels = []
+
         correct = 0
         total = 0
 
@@ -220,27 +237,46 @@ class CLIPTrainer:
             self.optimizer.zero_grad()
             image_features, text_features = self.model(images)
 
-            # Select corresponding text features for current batch
-            batch_text_features = text_features[labels]
+            if is_multilabel:
+                # Multi-label: compute similarity for all classes
+                logits = image_features @ text_features.T  # (batch, num_classes)
 
-            # Calculate CLIP loss (pass labels for weighted/focal losses)
-            loss = self.criterion(image_features, batch_text_features, labels)
+                # Use BCE loss for multi-label
+                bce_loss = nn.BCEWithLogitsLoss()(logits, labels)
+                loss = bce_loss
+
+                # Track predictions for accuracy
+                with torch.no_grad():
+                    preds = (torch.sigmoid(logits) > 0.5).float()
+                    all_preds.append(preds.cpu())
+                    all_labels.append(labels.cpu())
+            else:
+                # Single-label: original logic
+                batch_text_features = text_features[labels]
+                loss = self.criterion(image_features, batch_text_features, labels)
+
+                # Calculate accuracy
+                with torch.no_grad():
+                    logits = image_features @ text_features.T
+                    _, predicted = logits.max(1)
+                    total += labels.size(0)
+                    correct += predicted.eq(labels).sum().item()
 
             # Backward pass
             loss.backward()
             self.optimizer.step()
 
-            # Calculate accuracy (for monitoring)
-            with torch.no_grad():
-                logits = image_features @ text_features.T
-                _, predicted = logits.max(1)
-                total += labels.size(0)
-                correct += predicted.eq(labels).sum().item()
-
             total_loss += loss.item()
 
         avg_loss = total_loss / len(train_loader)
-        accuracy = 100. * correct / total
+
+        if is_multilabel:
+            # Multi-label accuracy: percentage of correctly predicted labels
+            all_preds = torch.cat(all_preds, dim=0)
+            all_labels = torch.cat(all_labels, dim=0)
+            accuracy = (all_preds == all_labels).float().mean().item() * 100
+        else:
+            accuracy = 100. * correct / total
 
         return avg_loss, accuracy
 
@@ -248,38 +284,62 @@ class CLIPTrainer:
         """Validate model"""
         self.model.eval()
         total_loss = 0
+        is_multilabel = self.config.classes.task_type == 'multi-label'
+
         correct = 0
         total = 0
         all_preds = []
         all_labels = []
+        all_probs = []
 
         with torch.no_grad():
             for images, texts, labels in tqdm(val_loader, desc="Validation"):
                 images, labels = images.to(self.device), labels.to(self.device)
 
                 image_features, text_features = self.model(images)
-
-                # Select corresponding text features for current batch
-                batch_text_features = text_features[labels]
-
-                # Calculate loss (pass labels for weighted/focal losses)
-                loss = self.criterion(image_features, batch_text_features, labels)
-                total_loss += loss.item()
-
-                # Calculate accuracy
                 logits = image_features @ text_features.T
-                _, predicted = logits.max(1)
-                total += labels.size(0)
-                correct += predicted.eq(labels).sum().item()
 
-                all_preds.extend(predicted.cpu().numpy())
-                all_labels.extend(labels.cpu().numpy())
+                if is_multilabel:
+                    # Multi-label classification
+                    bce_loss = nn.BCEWithLogitsLoss()(logits, labels)
+                    total_loss += bce_loss.item()
+
+                    # Get predictions
+                    probs = torch.sigmoid(logits)
+                    predicted = (probs > 0.5).float()
+
+                    all_preds.append(predicted.cpu().numpy())
+                    all_labels.append(labels.cpu().numpy())
+                    all_probs.append(probs.cpu().numpy())
+                else:
+                    # Single-label classification
+                    batch_text_features = text_features[labels]
+                    loss = self.criterion(image_features, batch_text_features, labels)
+                    total_loss += loss.item()
+
+                    _, predicted = logits.max(1)
+                    total += labels.size(0)
+                    correct += predicted.eq(labels).sum().item()
+
+                    all_preds.extend(predicted.cpu().numpy())
+                    all_labels.extend(labels.cpu().numpy())
 
         avg_loss = total_loss / len(val_loader)
-        accuracy = 100. * correct / total
 
-        # Calculate F1 score (macro)
-        f1_macro = f1_score(all_labels, all_preds, average='macro')
+        if is_multilabel:
+            # Concatenate all predictions and labels
+            all_preds = np.vstack(all_preds)
+            all_labels = np.vstack(all_labels)
+            all_probs = np.vstack(all_probs)
+
+            # Multi-label accuracy
+            accuracy = (all_preds == all_labels).mean() * 100
+
+            # Multi-label F1 score (samples average)
+            f1_macro = f1_score(all_labels, all_preds, average='samples', zero_division=0)
+        else:
+            accuracy = 100. * correct / total
+            f1_macro = f1_score(all_labels, all_preds, average='macro')
 
         return avg_loss, accuracy, f1_macro, all_preds, all_labels
 

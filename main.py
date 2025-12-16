@@ -31,7 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import Config
 from models import BiomedCLIPLoader, CLIPFineTune
-from datasets import ISIC2019DataLoader
+from datasets import MIMICCXRDataLoader  # Changed from ISIC2019DataLoader
 from trainers import ZeroShotCLIPInference, CLIPTrainer
 from evaluators import ModelEvaluator
 from utils import set_seed, print_device_info
@@ -155,7 +155,7 @@ def run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader, experim
     zeroshot = ZeroShotCLIPInference(clip_model, tokenizer, config)
 
     # Predict
-    all_predictions, all_labels, all_confidences = zeroshot.predict(test_loader)
+    all_predictions, all_labels, all_scores = zeroshot.predict(test_loader)
 
     # Generate save name
     save_name = experiment_name if experiment_name else "method1_zeroshot"
@@ -164,20 +164,18 @@ def run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader, experim
     evaluator = ModelEvaluator(config, config.paths.output_dir)
     results = evaluator.evaluate(
         all_labels, all_predictions,
-        "Method 1: Zero-shot CLIP (ISIC 2019)",
-        save_name
+        "Method 1: Zero-shot CLIP (MIMIC-CXR)",
+        save_name,
+        y_scores=all_scores
     )
-    results['avg_confidence'] = float(np.mean(all_confidences))
-
-    print(f"Average confidence: {np.mean(all_confidences):.4f}")
 
     return results
 
 
 def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_loader, test_loader, train_labels=None, experiment_name=None):
-    """Run full fine-tuning with CLIP loss"""
+    """Run full fine-tuning with CLIP loss (supports multi-label)"""
     print("\n" + "=" * 80)
-    print("Starting Method 2: Full Fine-Tuning with CLIP Loss")
+    print("Starting Method 2: Full Fine-Tuning with CLIP/BCE Loss")
     print("=" * 80)
 
     # Create fine-tuned model
@@ -208,7 +206,7 @@ def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_lo
     evaluator = ModelEvaluator(config, config.paths.output_dir)
     results = evaluator.evaluate(
         test_labels, test_preds,
-        "Method 2: Full Fine-Tuning (CLIP Loss) - ISIC 2019",
+        "Method 2: Full Fine-Tuning - MIMIC-CXR",
         save_name
     )
     results['best_val_f1_macro'] = float(trainer.best_val_f1)
@@ -243,10 +241,13 @@ def main():
     # Wrap tokenizer
     tokenizer_wrapped = model_loader.create_tokenizer_wrapper(tokenizer)
 
-    # Load and split data
-    data_loader = ISIC2019DataLoader(config)
-    image_paths, labels = data_loader.load_data()
-    data_splits = data_loader.split_dataset(image_paths, labels)
+    # Load and split MIMIC-CXR data
+    data_loader = MIMICCXRDataLoader(config)
+    image_paths, labels, split_info = data_loader.load_data(
+        use_provided_split=config.data.use_provided_split,
+        label_policy=config.data.label_policy
+    )
+    data_splits = data_loader.split_dataset(image_paths, labels, split_info)
 
     # Get text prompts
     text_prompts = config.classes.get_text_prompts()
