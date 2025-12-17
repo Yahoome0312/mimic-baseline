@@ -61,3 +61,6 @@ Thumbs.db
 
 # Exclude results but keep directory structure
 !results/.gitkeep
+
+# ai for code
+.claude/
