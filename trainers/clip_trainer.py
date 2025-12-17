@@ -186,19 +186,17 @@ class CLIPTrainer:
 
     def _setup_optimizer(self):
         """Setup optimizer with layered learning rates"""
-        image_params = []
-        text_params = []
+        # Get all trainable parameters
+        # This includes both image encoder and text encoder in clip_model
+        all_params = list(self.model.parameters())
 
-        for name, param in self.model.named_parameters():
-            if 'text_embeddings' in name:
-                text_params.append(param)
-            else:
-                image_params.append(param)
-
-        self.optimizer = optim.AdamW([
-            {'params': image_params, 'lr': self.config.training.learning_rate_image},
-            {'params': text_params, 'lr': self.config.training.learning_rate_text}
-        ], weight_decay=self.config.training.weight_decay)
+        # Use a single learning rate for simplicity
+        # (Both image and text encoders will use the same LR)
+        self.optimizer = optim.AdamW(
+            all_params,
+            lr=self.config.training.learning_rate_image,
+            weight_decay=self.config.training.weight_decay
+        )
 
     def _setup_scheduler(self):
         """Setup learning rate scheduler"""
@@ -233,23 +231,51 @@ class CLIPTrainer:
         for images, texts, labels in tqdm(train_loader, desc="Training"):
             images, labels = images.to(self.device), labels.to(self.device)
 
+            # Move texts to device if provided
+            if texts is not None:
+                texts = texts.to(self.device)
+
             # Forward pass
             self.optimizer.zero_grad()
-            image_features, text_features = self.model(images)
+            image_features, text_features = self.model(images, texts)
 
             if is_multilabel:
-                # Multi-label: compute similarity for all classes
-                logits = image_features @ text_features.T  # (batch, num_classes)
+                # Multi-label classification
+                if texts is not None:
+                    # When using reports: Use contrastive loss (image-report pairs)
+                    # Create diagonal labels for contrastive learning
+                    batch_size = images.size(0)
+                    contrastive_labels = torch.arange(batch_size, device=self.device)
 
-                # Use BCE loss for multi-label
-                bce_loss = nn.BCEWithLogitsLoss()(logits, labels)
-                loss = bce_loss
+                    # Compute similarity matrix
+                    logits_per_image = image_features @ text_features.T / 0.07  # temperature
+                    logits_per_text = text_features @ image_features.T / 0.07
 
-                # Track predictions for accuracy
-                with torch.no_grad():
-                    preds = (torch.sigmoid(logits) > 0.5).float()
-                    all_preds.append(preds.cpu())
-                    all_labels.append(labels.cpu())
+                    # Contrastive loss
+                    loss_i2t = nn.CrossEntropyLoss()(logits_per_image, contrastive_labels)
+                    loss_t2i = nn.CrossEntropyLoss()(logits_per_text, contrastive_labels)
+                    loss = (loss_i2t + loss_t2i) / 2
+
+                    # For tracking: use image features to predict labels (zero-shot style)
+                    with torch.no_grad():
+                        # We can't compute class predictions without class embeddings
+                        # Just set dummy values for now
+                        preds = torch.zeros_like(labels)
+                        all_preds.append(preds.cpu())
+                        all_labels.append(labels.cpu())
+                else:
+                    # Original: compute similarity for all classes
+                    logits = image_features @ text_features.T  # (batch, num_classes)
+
+                    # Use BCE loss for multi-label
+                    bce_loss = nn.BCEWithLogitsLoss()(logits, labels)
+                    loss = bce_loss
+
+                    # Track predictions for accuracy
+                    with torch.no_grad():
+                        preds = (torch.sigmoid(logits) > 0.5).float()
+                        all_preds.append(preds.cpu())
+                        all_labels.append(labels.cpu())
             else:
                 # Single-label: original logic
                 batch_text_features = text_features[labels]
@@ -296,7 +322,9 @@ class CLIPTrainer:
             for images, texts, labels in tqdm(val_loader, desc="Validation"):
                 images, labels = images.to(self.device), labels.to(self.device)
 
-                image_features, text_features = self.model(images)
+                # For validation, always use class embeddings (not reports)
+                # This allows us to compute multi-label classification metrics
+                image_features, text_features = self.model(images, texts=None)
                 logits = image_features @ text_features.T
 
                 if is_multilabel:
@@ -353,8 +381,7 @@ class CLIPTrainer:
         """
         print(f"\nStarting training (Full Fine-Tuning with CLIP Loss)...")
         print(f"Epochs: {self.config.training.epochs}")
-        print(f"Image Encoder LR: {self.config.training.learning_rate_image}")
-        print(f"Text Embeddings LR: {self.config.training.learning_rate_text}")
+        print(f"Learning Rate: {self.config.training.learning_rate_image}")
         print(f"Model saving strategy: Best F1-score (Macro)")
 
         for epoch in range(self.config.training.epochs):

@@ -200,9 +200,14 @@ class CLIPFineTune(nn.Module):
         image_features = self.clip_model.encode_image(images)
         image_features = image_features / image_features.norm(dim=-1, keepdim=True)
 
-        # Use learnable text embeddings
-        text_features = self.text_embeddings
-        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+        # If texts are provided (e.g., radiology reports), encode them
+        if texts is not None:
+            text_features = self.clip_model.encode_text(texts)
+            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+        else:
+            # Otherwise, use learnable class text embeddings (original behavior)
+            text_features = self.text_embeddings
+            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
 
         return image_features, text_features
 

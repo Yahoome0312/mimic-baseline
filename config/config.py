@@ -49,7 +49,7 @@ class TrainingConfig:
     """Training configuration"""
     # Learning rates
     learning_rate_image: float = 1e-5
-    learning_rate_text: float = 1e-4
+    learning_rate_text: float = 1e-5  # Changed to same as image encoder
 
     # Training parameters
     epochs: int = 100

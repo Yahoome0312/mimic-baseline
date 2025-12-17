@@ -19,20 +19,22 @@ from sklearn.model_selection import train_test_split
 class MIMICCXRDataset(Dataset):
     """MIMIC-CXR Dataset for multi-label classification"""
 
-    def __init__(self, image_paths, labels, transform=None, tokenizer=None, text_prompts=None):
+    def __init__(self, image_paths, labels, transform=None, tokenizer=None, text_prompts=None, reports=None):
         """
         Args:
             image_paths: List of image file paths
             labels: Array of multi-label annotations (N, num_classes)
             transform: Image transformations
             tokenizer: Text tokenizer (optional)
-            text_prompts: List of text prompts for each class (optional)
+            text_prompts: List of text prompts for each class (optional, used for zero-shot)
+            reports: List of report texts, one per image (optional, used for fine-tuning)
         """
         self.image_paths = image_paths
         self.labels = labels
         self.transform = transform
         self.tokenizer = tokenizer
         self.text_prompts = text_prompts
+        self.reports = reports  # NEW: per-image report texts
 
     def __len__(self):
         return len(self.image_paths)
@@ -48,9 +50,16 @@ class MIMICCXRDataset(Dataset):
         # Get labels
         label = torch.tensor(self.labels[idx], dtype=torch.float32)
 
-        # Tokenize text if available
-        if self.tokenizer and self.text_prompts:
-            text = self.tokenizer(self.text_prompts)
+        # Tokenize text
+        if self.tokenizer:
+            if self.reports is not None:
+                # Use per-image report text (for fine-tuning)
+                text = self.tokenizer([self.reports[idx]])
+            elif self.text_prompts is not None:
+                # Use class prompts (for zero-shot)
+                text = self.tokenizer(self.text_prompts)
+            else:
+                text = None
         else:
             text = None
 
@@ -86,7 +95,77 @@ class MIMICCXRDataLoader:
         self.config = config
         self.base_path = config.paths.base_data_path
         self.image_dir = os.path.join(self.base_path, 'MIMIC-CXR-JPG', 'files')
+        self.reports_dir = os.path.join(self.base_path, 'reports', 'files')  # NEW: reports directory
         self.num_classes = len(self.CHEXPERT_CLASSES)
+
+    def _extract_findings_impression(self, report_text):
+        """
+        Extract FINDINGS and IMPRESSION sections from report text
+
+        Args:
+            report_text: Full report text
+
+        Returns:
+            Combined findings and impression text
+        """
+        import re
+
+        findings = ""
+        impression = ""
+
+        # Extract FINDINGS section
+        findings_match = re.search(r'FINDINGS?:\s*(.*?)(?=IMPRESSION:|$)', report_text, re.DOTALL | re.IGNORECASE)
+        if findings_match:
+            findings = findings_match.group(1).strip()
+
+        # Extract IMPRESSION section
+        impression_match = re.search(r'IMPRESSION:\s*(.*?)$', report_text, re.DOTALL | re.IGNORECASE)
+        if impression_match:
+            impression = impression_match.group(1).strip()
+
+        # Combine findings and impression
+        combined = ""
+        if findings:
+            combined += findings
+        if impression:
+            if combined:
+                combined += " "
+            combined += impression
+
+        # Clean up: remove extra whitespace, newlines
+        combined = re.sub(r'\s+', ' ', combined).strip()
+
+        return combined if combined else "No findings or impression available."
+
+    def _load_report_for_study(self, subject_id, study_id):
+        """
+        Load report text for a given study
+
+        Args:
+            subject_id: Patient subject ID
+            study_id: Study ID
+
+        Returns:
+            Report text (findings + impression) or empty string if not found
+        """
+        # Construct report path: reports/files/p{XX}/p{subject_id}/s{study_id}.txt
+        p_prefix = 'p' + subject_id[:2]
+        p_subject = 'p' + subject_id
+        s_study = 's' + study_id
+
+        report_path = os.path.join(
+            self.reports_dir,
+            p_prefix,
+            p_subject,
+            f"{s_study}.txt"
+        )
+
+        try:
+            with open(report_path, 'r', encoding='utf-8') as f:
+                report_text = f.read()
+            return self._extract_findings_impression(report_text)
+        except FileNotFoundError:
+            return ""  # Return empty string if report not found
 
     def load_data(self, use_provided_split=True, label_policy='ignore_uncertain'):
         """
@@ -102,6 +181,7 @@ class MIMICCXRDataLoader:
         Returns:
             image_paths: List of image paths
             labels: Array of multi-label annotations
+            reports: List of report texts (Findings + Impression) for each image
             split_info: Dict with split information if use_provided_split=True
         """
         print("\n" + "=" * 80)
@@ -130,14 +210,17 @@ class MIMICCXRDataLoader:
 
         print(f"\nTotal images loaded: {len(data)}")
 
-        # Build image paths
+        # Build image paths and load reports
+        print("\nLoading reports (Findings + Impression)...")
         image_paths = []
-        for _, row in data.iterrows():
+        reports = []  # NEW: list to store report text for each image
+
+        for idx, row in data.iterrows():
             subject_id = str(row['subject_id'])
             study_id = str(row['study_id'])
             dicom_id = row['dicom_id']
 
-            # Construct path: files/p{first2}/p{subject_id}/s{study_id}/{dicom_id}.jpg
+            # Construct image path: files/p{first2}/p{subject_id}/s{study_id}/{dicom_id}.jpg
             p_prefix = 'p' + subject_id[:2]
             p_subject = 'p' + subject_id
             s_study = 's' + study_id
@@ -150,6 +233,18 @@ class MIMICCXRDataLoader:
                 f"{dicom_id}.jpg"
             )
             image_paths.append(img_path)
+
+            # Load report for this study (multiple images may share the same report)
+            report_text = self._load_report_for_study(subject_id, study_id)
+            reports.append(report_text)
+
+            # Progress indicator
+            if (idx + 1) % 50000 == 0:
+                print(f"  Loaded {idx + 1}/{len(data)} images and reports...")
+
+        # Count how many reports were successfully loaded
+        reports_loaded = sum(1 for r in reports if r and r != "")
+        print(f"\nSuccessfully loaded {reports_loaded}/{len(reports)} reports ({100*reports_loaded/len(reports):.1f}%)")
 
         # Process labels
         labels = data[self.CHEXPERT_CLASSES].values
@@ -177,17 +272,18 @@ class MIMICCXRDataLoader:
 
         if use_provided_split:
             split_info = data['split'].values
-            return image_paths, labels, split_info
+            return image_paths, labels, reports, split_info
         else:
-            return image_paths, labels, None
+            return image_paths, labels, reports, None
 
-    def split_dataset(self, image_paths, labels, split_info=None):
+    def split_dataset(self, image_paths, labels, reports, split_info=None):
         """
         Split dataset into train/val/test
 
         Args:
             image_paths: List of image paths
             labels: Label array
+            reports: List of report texts
             split_info: Pre-defined split info (if available)
 
         Returns:
@@ -205,27 +301,30 @@ class MIMICCXRDataLoader:
 
             X_train = [image_paths[i] for i in range(len(image_paths)) if train_mask[i]]
             y_train = labels[train_mask]
+            reports_train = [reports[i] for i in range(len(reports)) if train_mask[i]]
 
             X_val = [image_paths[i] for i in range(len(image_paths)) if val_mask[i]]
             y_val = labels[val_mask]
+            reports_val = [reports[i] for i in range(len(reports)) if val_mask[i]]
 
             X_test = [image_paths[i] for i in range(len(image_paths)) if test_mask[i]]
             y_test = labels[test_mask]
+            reports_test = [reports[i] for i in range(len(reports)) if test_mask[i]]
 
             print(f"Using official MIMIC-CXR splits:")
         else:
             # Create custom split
             # First split: train+val vs test
-            X_temp, X_test, y_temp, y_test = train_test_split(
-                image_paths, labels,
+            X_temp, X_test, y_temp, y_test, reports_temp, reports_test = train_test_split(
+                image_paths, labels, reports,
                 test_size=self.config.data.test_size,
                 random_state=self.config.data.random_state
             )
 
             # Second split: train vs val
             val_ratio = self.config.data.val_size / (1 - self.config.data.test_size)
-            X_train, X_val, y_train, y_val = train_test_split(
-                X_temp, y_temp,
+            X_train, X_val, y_train, y_val, reports_train, reports_val = train_test_split(
+                X_temp, y_temp, reports_temp,
                 test_size=val_ratio,
                 random_state=self.config.data.random_state
             )
@@ -237,33 +336,35 @@ class MIMICCXRDataLoader:
         print(f"  Test:  {len(X_test)} images")
 
         return {
-            'train': (X_train, y_train),
-            'val': (X_val, y_val),
-            'test': (X_test, y_test)
+            'train': (X_train, y_train, reports_train),
+            'val': (X_val, y_val, reports_val),
+            'test': (X_test, y_test, reports_test)
         }
 
-    def create_dataloaders(self, data_splits, preprocess, tokenizer, text_prompts):
+    def create_dataloaders(self, data_splits, preprocess, tokenizer, text_prompts, use_reports=True):
         """
         Create PyTorch DataLoaders
 
         Args:
-            data_splits: Dictionary with data splits
+            data_splits: Dictionary with data splits (each split contains image_paths, labels, reports)
             preprocess: Image preprocessing transform
             tokenizer: Text tokenizer
-            text_prompts: List of text prompts
+            text_prompts: List of text prompts (used for zero-shot if use_reports=False)
+            use_reports: Whether to use reports (True for fine-tuning) or text_prompts (False for zero-shot)
 
         Returns:
             Dictionary of DataLoaders
         """
         dataloaders = {}
 
-        for split_name, (image_paths, labels) in data_splits.items():
+        for split_name, (image_paths, labels, reports) in data_splits.items():
             dataset = MIMICCXRDataset(
                 image_paths=image_paths,
                 labels=labels,
                 transform=preprocess,
                 tokenizer=tokenizer,
-                text_prompts=text_prompts
+                text_prompts=None if use_reports else text_prompts,  # Use prompts only for zero-shot
+                reports=reports if use_reports else None  # Use reports for fine-tuning
             )
 
             # Use shuffle for train, not for val/test

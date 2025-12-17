@@ -96,6 +96,10 @@ def parse_args():
     parser.add_argument('--external_test_path', type=str, default=None,
                        help='Path to external test dataset (ChestXray14)')
 
+    # Testing control
+    parser.add_argument('--skip_test', action='store_true',
+                       help='Skip testing after training (only train and save model)')
+
     # Other arguments
     parser.add_argument('--seed', type=int, default=42,
                        help='Random seed for reproducibility')
@@ -178,7 +182,7 @@ def run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader, experim
     return results
 
 
-def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_loader, test_loader, train_labels=None, experiment_name=None):
+def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_loader, test_loader, train_labels=None, experiment_name=None, skip_test=False):
     """Run full fine-tuning with CLIP loss (supports multi-label)"""
     print("\n" + "=" * 80)
     print("Starting Method 2: Full Fine-Tuning with CLIP/BCE Loss")
@@ -204,6 +208,14 @@ def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_lo
 
     # Save best model
     trainer.save_best_model(model_name)
+
+    # Skip testing if requested
+    if skip_test:
+        print("\n" + "=" * 80)
+        print("Training completed! Skipping test evaluation as requested.")
+        print(f"Model saved to: {config.paths.output_dir}/{model_name}")
+        print("=" * 80)
+        return {'best_val_f1_macro': float(trainer.best_val_f1), 'skipped_test': True}
 
     # Predict on test set
     test_preds, test_labels = trainer.predict(test_loader)
@@ -249,11 +261,11 @@ def main():
 
     # Load and split MIMIC-CXR data
     data_loader = MIMICCXRDataLoader(config)
-    image_paths, labels, split_info = data_loader.load_data(
+    image_paths, labels, reports, split_info = data_loader.load_data(
         use_provided_split=config.data.use_provided_split,
         label_policy=config.data.label_policy
     )
-    data_splits = data_loader.split_dataset(image_paths, labels, split_info)
+    data_splits = data_loader.split_dataset(image_paths, labels, reports, split_info)
 
     # Get text prompts
     text_prompts = config.classes.get_text_prompts()
@@ -267,14 +279,15 @@ def main():
     val_loader = None
 
     if args.method in ['all', 'finetune']:
-        # Create train/val loaders for fine-tuning
+        # Create train/val loaders for fine-tuning (use reports)
+        print("\nCreating fine-tuning loaders with radiology reports...")
         train_dataset_loader = data_loader.create_dataloaders(
             {'train': data_splits['train']},
-            preprocess, tokenizer_wrapped, text_prompts
+            preprocess, tokenizer_wrapped, text_prompts, use_reports=True
         )
         val_dataset_loader = data_loader.create_dataloaders(
             {'val': data_splits['val']},
-            preprocess, tokenizer_wrapped, text_prompts
+            preprocess, tokenizer_wrapped, text_prompts, use_reports=True
         )
         train_loader = train_dataset_loader['train']
         val_loader = val_dataset_loader['val']
@@ -300,10 +313,11 @@ def main():
         )
         test_dataset_name = "ChestXray14"
     else:
-        # Use MIMIC-CXR test set
+        # Use MIMIC-CXR test set (use text prompts for zero-shot evaluation)
+        print("\nCreating test loader with text prompts (for zero-shot)...")
         test_dataset_loader = data_loader.create_dataloaders(
             {'test': data_splits['test']},
-            preprocess, tokenizer_wrapped, text_prompts
+            preprocess, tokenizer_wrapped, text_prompts, use_reports=False
         )
         test_loader = test_dataset_loader['test']
         test_dataset_name = "MIMIC-CXR"
@@ -333,7 +347,8 @@ def main():
 
         result2 = run_finetune(config, clip_model, tokenizer, preprocess,
                               train_loader, val_loader, test_loader,
-                              train_labels=y_train, experiment_name=exp_name)
+                              train_labels=y_train, experiment_name=exp_name,
+                              skip_test=args.skip_test)
         all_results.append(result2)
 
     # Compare results if multiple methods were run
