@@ -1,0 +1,4 @@
+python main.py --method zeroshot --test_chestxray14 
+python main.py --method finetune                 
+python main.py --method finetune --test_chestxray14
+python main.py --method finetune --skip_test 

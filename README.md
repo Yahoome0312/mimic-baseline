@@ -9,8 +9,8 @@ A modular PyTorch implementation for chest X-ray multi-label classification usin
   - **Training**: MIMIC-CXR dataset (377K+ images)
   - **Testing**: MIMIC-CXR or ChestXray14 (cross-dataset evaluation)
 - **Two Training Methods**:
-  - Method 1: Zero-shot CLIP inference (no training required)
-  - Method 2: Full fine-tuning with BCE loss for multi-label
+  - Zero-shot: CLIP inference (no training required)
+  - Fine-tuning: Full fine-tuning with CLIP loss for contrastive learning
 - **Cross-Dataset Evaluation**: Train on MIMIC-CXR, test on ChestXray14 to assess generalization
 - **Modular Architecture**: Clean separation of concerns with dedicated modules
 - **Comprehensive Evaluation**: Multi-label metrics including Hamming Loss, Jaccard Score, per-class AUC-ROC
@@ -147,10 +147,10 @@ python main.py --method all
 
 ```bash
 # Train on MIMIC, test on ChestXray14
-python main.py --method finetune --external_test
+python main.py --method finetune --test_chestxray14
 
 # Zero-shot on ChestXray14 (no training)
-python main.py --method zeroshot --external_test
+python main.py --method zeroshot --test_chestxray14
 ```
 
 ### Custom Configuration
@@ -160,8 +160,7 @@ python main.py --method zeroshot --external_test
 python main.py --method finetune \
   --batch_size 32 \
   --epochs 50 \
-  --lr_image 5e-6 \
-  --lr_text 1e-4
+  --lr 5e-6
 ```
 
 **Custom paths**:
@@ -174,8 +173,8 @@ python main.py --method finetune \
 **Cross-dataset with custom path**:
 ```bash
 python main.py --method finetune \
-  --external_test \
-  --external_test_path "E:\MyData\ChestXray14"
+  --test_chestxray14 \
+  --chestxray14_path "E:\MyData\ChestXray14"
 ```
 
 **Experiment naming**:
@@ -196,8 +195,8 @@ python main.py --method finetune \
 - `--experiment_name`: Custom experiment name
 
 ### Cross-Dataset Testing
-- `--external_test`: Use ChestXray14 as external test set
-- `--external_test_path`: Custom path to ChestXray14
+- `--test_chestxray14`: Use ChestXray14 dataset for testing
+- `--chestxray14_path`: Custom path to ChestXray14 (default: D:\Data\ChestXray14\CXR8)
 
 ### Data Arguments
 - `--batch_size`: Batch size (default: 32)
@@ -207,8 +206,7 @@ python main.py --method finetune \
 
 ### Training Arguments
 - `--epochs`: Training epochs (default: 100)
-- `--lr_image`: Learning rate for image encoder (default: 1e-5)
-- `--lr_text`: Learning rate for text embeddings (default: 1e-4)
+- `--lr`: Learning rate for all parameters (default: 1e-5)
 - `--weight_decay`: Weight decay (default: 0.01)
 - `--patience`: Early stopping patience (default: 10)
 
@@ -279,14 +277,14 @@ python main.py --method finetune \
 Results are saved in: `C:\Users\admin\Desktop\mimic-baseline\results\mimic_clip\`
 
 ### MIMIC-CXR Testing
-- `method1_zeroshot_results.json`
-- `method2_full_finetune_results.json`
-- `method2_best_model.pth`
+- `zeroshot_results.json`
+- `finetune_results.json`
+- `finetune_best_model.pth`
 - Training curves and performance plots
 
-### ChestXray14 Testing (with `--external_test`)
-- `method1_zeroshot_on_ChestXray14_results.json`
-- `method2_full_finetune_on_ChestXray14_results.json`
+### ChestXray14 Testing (with `--test_chestxray14`)
+- `zeroshot_on_ChestXray14_results.json`
+- `finetune_on_ChestXray14_results.json`
 - Cross-dataset performance metrics
 
 ### Visualizations
@@ -297,17 +295,18 @@ Results are saved in: `C:\Users\admin\Desktop\mimic-baseline\results\mimic_clip\
 
 ## 🔬 Model Details
 
-### Method 1: Zero-Shot CLIP
+### Zero-Shot CLIP
 - Uses pre-trained BiomedCLIP (no training)
 - Text prompts: `"chest x-ray showing {pathology}"`
 - Multi-label: Sigmoid activation + 0.5 threshold
 - Automatically adapts to different class names
 
-### Method 2: Fine-Tuning
-- Fine-tunes image encoder + learnable text embeddings
-- **Multi-label loss**: Binary Cross-Entropy (BCE)
-- Separate learning rates (image vs. text)
-- Early stopping on validation F1-score
+### Fine-Tuning
+- Fine-tunes image encoder with radiology reports
+- **Contrastive learning**: CLIP loss (image-text pairs)
+- Unified learning rate (1e-5) for image and text encoders
+- Early stopping on validation Recall@5
+- Validation metrics: Recall@1, Recall@5, Recall@10
 - Cosine annealing LR scheduler
 
 ## 🌍 Cross-Dataset Evaluation

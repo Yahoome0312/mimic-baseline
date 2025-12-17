@@ -134,7 +134,7 @@ python main.py --method finetune
 python main.py --method zeroshot
 
 # 方法4：自定义参数
-python main.py --method finetune --batch_size 16 --epochs 50 --lr_image 5e-6
+python main.py --method finetune --batch_size 16 --epochs 50 --lr 5e-6
 ```
 
 ### 查看结果

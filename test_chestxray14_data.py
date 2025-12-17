@@ -72,10 +72,10 @@ if __name__ == "__main__":
     if success:
         print("\nYou can now test on ChestXray14 with:")
         print("  # Train on MIMIC, test on ChestXray14 (zero-shot)")
-        print("  python main.py --method zeroshot --external_test")
+        print("  python main.py --method zeroshot --test_chestxray14")
         print()
         print("  # Train on MIMIC, fine-tune and test on ChestXray14")
-        print("  python main.py --method finetune --external_test")
+        print("  python main.py --method finetune --test_chestxray14")
     else:
         print("\nPlease fix the errors above before running cross-dataset testing.")
 

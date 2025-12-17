@@ -11,8 +11,8 @@
 python main.py --method finetune
 ```
 生成文件：
-- ❌ `method2_best_model.pth` （名称固定）
-- ❌ `method2_full_finetune_results.json` （名称固定）
+- ❌ `finetune_best_model.pth` （名称固定）
+- ❌ `finetune_results.json` （名称固定）
 - ❌ `training_curves.png` （名称固定）
 
 ### 现在（自定义文件名）
@@ -44,13 +44,13 @@ python main.py --method finetune --loss_type weighted --experiment_name weighted
 python main.py --method finetune --loss_type focal --experiment_name focal_g2.5
 
 # 示例 2: 学习率搜索
-python main.py --method finetune --lr_image 5e-6 --experiment_name lr5e6
-python main.py --method finetune --lr_image 1e-5 --experiment_name lr1e5
+python main.py --method finetune --lr 5e-6 --experiment_name lr5e6
+python main.py --method finetune --lr 1e-5 --experiment_name lr1e5
 
 # 示例 3: 完整命名
 python main.py --method finetune \
     --loss_type weighted \
-    --lr_image 5e-6 \
+    --lr 5e-6 \
     --output_dir results/production \
     --experiment_name weighted_eff_lr5e6_final
 ```
@@ -61,11 +61,11 @@ python main.py --method finetune \
 
 | 原文件名 | 使用 `--experiment_name my_exp` 后 |
 |---------|-----------------------------------|
-| `method2_best_model.pth` | `my_exp_best_model.pth` |
+| `finetune_best_model.pth` | `my_exp_best_model.pth` |
 | `training_curves.png` | `my_exp_training_curves.png` |
-| `method2_full_finetune_results.json` | `my_exp_results.json` |
-| `method2_full_finetune_confusion_matrix.png` | `my_exp_confusion_matrix.png` |
-| `method2_full_finetune_per_class_recall.png` | `my_exp_per_class_recall.png` |
+| `finetune_results.json` | `my_exp_results.json` |
+| `finetune_confusion_matrix.png` | `my_exp_confusion_matrix.png` |
+| `finetune_per_class_recall.png` | `my_exp_per_class_recall.png` |
 
 ### 不受影响的文件
 - `class_distribution.png` （数据集统计，不随实验改变）
@@ -87,8 +87,8 @@ python main.py --method finetune \
 
 ### 向后兼容性
 ✅ 完全向后兼容！如果不指定 `--experiment_name`，使用默认名称：
-- Zero-shot: `method1_zeroshot`
-- Fine-tuning: `method2_full_finetune`
+- Zero-shot: `zeroshot`
+- Fine-tuning: `finetune`
 
 ## 💡 使用建议
 
@@ -149,7 +149,7 @@ python main.py --method finetune --loss_type focal --focal_alpha \
 ```bash
 for lr in 5e-6 1e-5 2e-5; do
     python main.py --method finetune \
-        --lr_image $lr \
+        --lr $lr \
         --output_dir results/lr_search \
         --experiment_name lr_${lr/e/-}  # 5e-6 -> lr_5-6
 done

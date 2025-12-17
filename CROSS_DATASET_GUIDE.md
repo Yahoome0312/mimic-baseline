@@ -88,17 +88,17 @@ run_cross_dataset_test.bat
 
 **仅 Zero-shot 测试**（无需训练）：
 ```bash
-python main.py --method zeroshot --external_test
+python main.py --method zeroshot --test_chestxray14
 ```
 
 **完整流程**（训练 + 测试）：
 ```bash
-python main.py --method finetune --external_test
+python main.py --method finetune --test_chestxray14
 ```
 
 **自定义参数**：
 ```bash
-python main.py --method finetune --external_test --batch_size 16 --epochs 30
+python main.py --method finetune --test_chestxray14 --batch_size 16 --epochs 30
 ```
 
 ### 3️⃣ 仅在 MIMIC 上测试（对比基线）
@@ -116,19 +116,19 @@ python main.py --method finetune
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
-| `--external_test` | flag | 使用外部测试集 (ChestXray14) |
-| `--external_test_path` | str | 自定义 ChestXray14 路径（默认: `D:\Data\ChestXray14\CXR8`） |
+| `--test_chestxray14` | flag | 使用 ChestXray14 数据集进行测试 |
+| `--chestxray14_path` | str | 自定义 ChestXray14 路径（默认: `D:\Data\ChestXray14\CXR8`） |
 
 ### 完整示例
 
 ```bash
 python main.py \
     --method finetune \
-    --external_test \
-    --external_test_path "D:\Data\ChestXray14\CXR8" \
+    --test_chestxray14 \
+    --chestxray14_path "D:\Data\ChestXray14\CXR8" \
     --batch_size 32 \
     --epochs 50 \
-    --lr_image 1e-5 \
+    --lr 1e-5 \
     --experiment_name "mimic_to_chestxray14"
 ```
 
@@ -138,15 +138,15 @@ python main.py \
 
 ### 文件命名规则
 
-当使用 `--external_test` 时，结果文件名会自动添加后缀：
+当使用 `--test_chestxray14` 时，结果文件名会自动添加后缀：
 
 **MIMIC 测试**:
-- `method1_zeroshot_results.json`
-- `method2_full_finetune_results.json`
+- `zeroshot_results.json`
+- `finetune_results.json`
 
 **ChestXray14 测试**:
-- `method1_zeroshot_on_ChestXray14_results.json`
-- `method2_full_finetune_on_ChestXray14_results.json`
+- `zeroshot_on_ChestXray14_results.json`
+- `finetune_on_ChestXray14_results.json`
 
 ### 结果目录
 
@@ -192,25 +192,25 @@ python main.py --method finetune
 ### 实验 2: 跨数据集泛化
 ```bash
 # 在 MIMIC 训练，在 ChestXray14 测试
-python main.py --method finetune --external_test
+python main.py --method finetune --test_chestxray14
 ```
 
 ### 实验 3: Zero-shot 能力
 ```bash
 # 不训练，直接在 ChestXray14 zero-shot
-python main.py --method zeroshot --external_test
+python main.py --method zeroshot --test_chestxray14
 ```
 
 ### 实验 4: 损失函数对比
 ```bash
 # 标准损失
-python main.py --method finetune --external_test --loss_type standard
+python main.py --method finetune --test_chestxray14 --loss_type standard
 
 # 加权损失
-python main.py --method finetune --external_test --loss_type weighted
+python main.py --method finetune --test_chestxray14 --loss_type weighted
 
 # Focal 损失
-python main.py --method finetune --external_test --loss_type focal --focal_gamma 2.0
+python main.py --method finetune --test_chestxray14 --loss_type focal --focal_gamma 2.0
 ```
 
 ---
@@ -247,7 +247,7 @@ FileNotFoundError: D:\Data\ChestXray14\CXR8\Data_Entry_2017_v2020.csv
 **解决**:
 ```bash
 # 指定正确路径
-python main.py --external_test --external_test_path "你的路径"
+python main.py --test_chestxray14 --chestxray14_path "你的路径"
 ```
 
 ### 问题 2: 内存不足
@@ -260,7 +260,7 @@ RuntimeError: CUDA out of memory
 **解决**:
 ```bash
 # 减小 batch size
-python main.py --external_test --batch_size 16
+python main.py --test_chestxray14 --batch_size 16
 ```
 
 ### 问题 3: 图像路径错误
@@ -347,7 +347,7 @@ Zero-shot 推理
 python main.py --method finetune --experiment_name "mimic_baseline"
 
 # 2. ChestXray14 测试
-python main.py --method finetune --external_test --experiment_name "chestxray14_transfer"
+python main.py --method finetune --test_chestxray14 --experiment_name "chestxray14_transfer"
 
 # 3. 对比结果
 # 查看 results/mimic_clip/ 目录下的 JSON 文件

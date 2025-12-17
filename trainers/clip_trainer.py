@@ -11,8 +11,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.metrics import f1_score, roc_auc_score
 
-from ..models import CLIPLoss, WeightedCLIPLoss, FocalCLIPLoss, CLIPFineTune, compute_class_weights
-from ..utils import EarlyStopping
+from models import CLIPLoss, WeightedCLIPLoss, FocalCLIPLoss, CLIPFineTune, compute_class_weights
+from utils import EarlyStopping
 
 
 class ZeroShotCLIPInference:
@@ -43,7 +43,7 @@ class ZeroShotCLIPInference:
             all_scores: List of prediction scores
         """
         print("\n" + "=" * 80)
-        print("Method 1: Zero-shot CLIP")
+        print("Zero-shot CLIP")
         print("=" * 80)
 
         self.model.to(self.device)
@@ -307,69 +307,98 @@ class CLIPTrainer:
         return avg_loss, accuracy
 
     def validate(self, val_loader):
-        """Validate model"""
+        """
+        Validate model using contrastive learning metrics
+        Uses image-text retrieval Recall@K instead of classification metrics
+        """
         self.model.eval()
         total_loss = 0
-        is_multilabel = self.config.classes.task_type == 'multi-label'
 
-        correct = 0
-        total = 0
-        all_preds = []
-        all_labels = []
-        all_probs = []
+        # Collect all features for retrieval evaluation
+        all_image_features = []
+        all_text_features = []
 
         with torch.no_grad():
             for images, texts, labels in tqdm(val_loader, desc="Validation"):
-                images, labels = images.to(self.device), labels.to(self.device)
+                images = images.to(self.device)
 
-                # For validation, always use class embeddings (not reports)
-                # This allows us to compute multi-label classification metrics
-                image_features, text_features = self.model(images, texts=None)
-                logits = image_features @ text_features.T
+                # Move texts to device if provided
+                if texts is not None:
+                    texts = texts.to(self.device)
 
-                if is_multilabel:
-                    # Multi-label classification
-                    bce_loss = nn.BCEWithLogitsLoss()(logits, labels)
-                    total_loss += bce_loss.item()
+                # Extract features (using reports, consistent with training)
+                image_features, text_features = self.model(images, texts)
 
-                    # Get predictions
-                    probs = torch.sigmoid(logits)
-                    predicted = (probs > 0.5).float()
+                # Compute contrastive loss (same as training)
+                batch_size = images.size(0)
+                contrastive_labels = torch.arange(batch_size, device=self.device)
 
-                    all_preds.append(predicted.cpu().numpy())
-                    all_labels.append(labels.cpu().numpy())
-                    all_probs.append(probs.cpu().numpy())
-                else:
-                    # Single-label classification
-                    batch_text_features = text_features[labels]
-                    loss = self.criterion(image_features, batch_text_features, labels)
-                    total_loss += loss.item()
+                # Similarity matrix
+                logits_per_image = image_features @ text_features.T / 0.07
+                logits_per_text = text_features @ image_features.T / 0.07
 
-                    _, predicted = logits.max(1)
-                    total += labels.size(0)
-                    correct += predicted.eq(labels).sum().item()
+                # Contrastive loss
+                loss_i2t = nn.CrossEntropyLoss()(logits_per_image, contrastive_labels)
+                loss_t2i = nn.CrossEntropyLoss()(logits_per_text, contrastive_labels)
+                loss = (loss_i2t + loss_t2i) / 2
 
-                    all_preds.extend(predicted.cpu().numpy())
-                    all_labels.extend(labels.cpu().numpy())
+                total_loss += loss.item()
+
+                # Collect features for retrieval evaluation
+                all_image_features.append(image_features.cpu())
+                all_text_features.append(text_features.cpu())
 
         avg_loss = total_loss / len(val_loader)
 
-        if is_multilabel:
-            # Concatenate all predictions and labels
-            all_preds = np.vstack(all_preds)
-            all_labels = np.vstack(all_labels)
-            all_probs = np.vstack(all_probs)
+        # Concatenate all features
+        all_image_features = torch.cat(all_image_features, dim=0)  # (N, 512)
+        all_text_features = torch.cat(all_text_features, dim=0)    # (N, 512)
 
-            # Multi-label accuracy
-            accuracy = (all_preds == all_labels).mean() * 100
+        # Compute retrieval metrics (Recall@K)
+        recall_at_1, recall_at_5, recall_at_10 = self._compute_retrieval_metrics(
+            all_image_features, all_text_features
+        )
 
-            # Multi-label F1 score (samples average)
-            f1_macro = f1_score(all_labels, all_preds, average='samples', zero_division=0)
-        else:
-            accuracy = 100. * correct / total
-            f1_macro = f1_score(all_labels, all_preds, average='macro')
+        # Use Recall@5 as the main metric for early stopping
+        main_metric = recall_at_5
 
-        return avg_loss, accuracy, f1_macro, all_preds, all_labels
+        return avg_loss, recall_at_1, main_metric, recall_at_10, None, None
+
+    def _compute_retrieval_metrics(self, image_features, text_features, k_values=[1, 5, 10]):
+        """
+        Compute image-to-text retrieval Recall@K
+
+        Args:
+            image_features: (N, D) tensor of image features
+            text_features: (N, D) tensor of text features
+            k_values: list of k values for Recall@K
+
+        Returns:
+            recall@1, recall@5, recall@10
+        """
+        # Normalize features
+        image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+
+        # Compute similarity matrix: (N, N)
+        similarity = image_features @ text_features.T
+
+        N = similarity.size(0)
+        recalls = []
+
+        for k in k_values:
+            # For each image, find top-k most similar texts
+            _, top_k_indices = similarity.topk(k, dim=1)  # (N, k)
+
+            # Check if the correct text (diagonal) is in top-k
+            correct_indices = torch.arange(N).unsqueeze(1)  # (N, 1)
+            hits = (top_k_indices == correct_indices).any(dim=1).float()
+
+            # Recall@K = percentage of correct retrievals
+            recall = hits.mean().item() * 100
+            recalls.append(recall)
+
+        return recalls[0], recalls[1], recalls[2]
 
     def train(self, train_loader, val_loader):
         """
@@ -382,7 +411,8 @@ class CLIPTrainer:
         print(f"\nStarting training (Full Fine-Tuning with CLIP Loss)...")
         print(f"Epochs: {self.config.training.epochs}")
         print(f"Learning Rate: {self.config.training.learning_rate_image}")
-        print(f"Model saving strategy: Best F1-score (Macro)")
+        print(f"Validation Metric: Image-to-Text Retrieval Recall@5")
+        print(f"Model saving strategy: Best Recall@5")
 
         for epoch in range(self.config.training.epochs):
             print(f"\nEpoch {epoch+1}/{self.config.training.epochs}")
@@ -392,26 +422,26 @@ class CLIPTrainer:
             self.train_losses.append(train_loss)
             self.train_accs.append(train_acc)
 
-            # Validate
-            val_loss, val_acc, val_f1, _, _ = self.validate(val_loader)
+            # Validate (returns: loss, R@1, R@5, R@10, None, None)
+            val_loss, recall_at_1, recall_at_5, recall_at_10, _, _ = self.validate(val_loader)
             self.val_losses.append(val_loss)
-            self.val_accs.append(val_acc)
-            self.val_f1s.append(val_f1)
+            self.val_accs.append(recall_at_1)  # Store R@1 in acc slot
+            self.val_f1s.append(recall_at_5)   # Store R@5 in f1 slot
 
             # Update learning rate
             if self.scheduler:
                 self.scheduler.step()
 
             print(f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}%")
-            print(f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2f}% | Val F1: {val_f1:.4f}")
+            print(f"Val Loss: {val_loss:.4f} | R@1: {recall_at_1:.2f}% | R@5: {recall_at_5:.2f}% | R@10: {recall_at_10:.2f}%")
             print(f"LR: {self.optimizer.param_groups[0]['lr']:.6f}")
 
-            # Early stopping check (based on F1 score)
-            is_best = self.early_stopping(val_f1, epoch+1)
+            # Early stopping check (based on Recall@5)
+            is_best = self.early_stopping(recall_at_5, epoch+1)
             if is_best:
-                self.best_val_f1 = val_f1
+                self.best_val_f1 = recall_at_5  # Store best R@5
                 self.best_model_state = self.model.state_dict().copy()
-                print(f"✓ Best model updated! (F1: {val_f1:.4f})")
+                print(f"✓ Best model updated! (R@5: {recall_at_5:.2f}%)")
 
             if self.early_stopping.early_stop:
                 print(f"\nEarly stopping triggered! Training stopped at epoch {epoch+1}")
@@ -457,7 +487,7 @@ class CLIPTrainer:
             model_path = os.path.join(self.output_dir, filename)
             torch.save(self.best_model_state, model_path)
             print(f"\nBest model saved to: {model_path}")
-            print(f"Model selected based on: Best F1-score (Macro) = {self.best_val_f1:.4f}")
+            print(f"Model selected based on: Best Recall@5 = {self.best_val_f1:.2f}%")
             return model_path
         else:
             print("No best model state found!")
@@ -467,21 +497,24 @@ class CLIPTrainer:
         """Load best model state"""
         if self.best_model_state is not None:
             self.model.load_state_dict(self.best_model_state)
-            print(f"Loaded best model (Best Val F1: {self.best_val_f1:.4f})")
+            print(f"Loaded best model (Best Val Recall@5: {self.best_val_f1:.2f}%)")
         else:
             print("No best model state found!")
 
     def predict(self, test_loader):
         """
         Predict on test set
+        Note: For contrastive learning, we don't have direct predictions
+        This method needs to be called only if doing downstream classification
 
         Args:
             test_loader: Test data loader
 
         Returns:
-            test_preds: Predictions
-            test_labels: True labels
+            None, None (placeholder)
         """
         self.load_best_model()
-        _, _, _, test_preds, test_labels = self.validate(test_loader)
-        return test_preds, test_labels
+        # For contrastive learning with reports, we don't generate class predictions
+        # Return None to indicate this is not applicable
+        print("\n[Note] Contrastive learning model - skipping classification predictions")
+        return None, None

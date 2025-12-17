@@ -66,13 +66,13 @@ run_cross_dataset_test.bat
 **选项 B - 命令行**:
 ```bash
 # 在 MIMIC 训练，在 ChestXray14 测试
-python main.py --method finetune --external_test
+python main.py --method finetune --test_chestxray14
 ```
 
 **选项 C - Zero-shot（无需训练）**:
 ```bash
 # 直接在 ChestXray14 进行 zero-shot 测试
-python main.py --method zeroshot --external_test
+python main.py --method zeroshot --test_chestxray14
 ```
 
 ---
@@ -94,19 +94,19 @@ python main.py --method zeroshot --external_test
 ### 1. 新增命令行参数
 
 ```bash
---external_test          # 使用外部测试集
---external_test_path     # 指定外部数据集路径（可选）
+--test_chestxray14          # 使用外部测试集
+--test_chestxray14_path     # 指定外部数据集路径（可选）
 ```
 
 ### 2. 自动文件命名
 
 **MIMIC 测试集**:
-- `method1_zeroshot_results.json`
-- `method2_full_finetune_results.json`
+- `zeroshot_results.json`
+- `finetune_results.json`
 
 **ChestXray14 测试集**:
-- `method1_zeroshot_on_ChestXray14_results.json`
-- `method2_full_finetune_on_ChestXray14_results.json`
+- `zeroshot_on_ChestXray14_results.json`
+- `finetune_on_ChestXray14_results.json`
 
 ### 3. Zero-shot 文本提示
 
@@ -131,25 +131,25 @@ python main.py --method finetune
 ### 场景 2: 泛化能力测试
 ```bash
 # 在 MIMIC 训练，在 ChestXray14 测试（跨分布）
-python main.py --method finetune --external_test
+python main.py --method finetune --test_chestxray14
 ```
 
 ### 场景 3: Zero-shot 能力评估
 ```bash
 # 不训练，直接 zero-shot 测试 ChestXray14
-python main.py --method zeroshot --external_test
+python main.py --method zeroshot --test_chestxray14
 ```
 
 ### 场景 4: 损失函数对比
 ```bash
 # 标准损失
-python main.py --method finetune --external_test --loss_type standard
+python main.py --method finetune --test_chestxray14 --loss_type standard
 
 # 加权损失（处理类别不平衡）
-python main.py --method finetune --external_test --loss_type weighted
+python main.py --method finetune --test_chestxray14 --loss_type weighted
 
 # Focal 损失（关注难例）
-python main.py --method finetune --external_test --loss_type focal
+python main.py --method finetune --test_chestxray14 --loss_type focal
 ```
 
 ---
@@ -241,24 +241,23 @@ MIMIC 测试      ChestXray14
 
 如果数据不在默认位置：
 ```bash
-python main.py --external_test \
-  --external_test_path "E:\MyData\ChestXray14"
+python main.py --test_chestxray14 \
+  --test_chestxray14_path "E:\MyData\ChestXray14"
 ```
 
 ### 调整训练参数
 
 ```bash
-python main.py --method finetune --external_test \
+python main.py --method finetune --test_chestxray14 \
   --batch_size 16 \
   --epochs 30 \
-  --lr_image 5e-6 \
-  --lr_text 1e-4
+  --lr 5e-6
 ```
 
 ### 实验命名
 
 ```bash
-python main.py --method finetune --external_test \
+python main.py --method finetune --test_chestxray14 \
   --experiment_name "focal_loss_exp1" \
   --loss_type focal \
   --focal_gamma 2.5

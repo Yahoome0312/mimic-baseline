@@ -18,7 +18,7 @@ Usage examples:
     python main.py --checkpoint_dir C:\Models\biomedclip
 
     # Modify training parameters
-    python main.py --epochs 50 --batch_size 32 --lr_image 5e-6
+    python main.py --epochs 50 --batch_size 32 --lr 5e-6
 """
 
 import argparse
@@ -69,10 +69,8 @@ def parse_args():
     # Training arguments
     parser.add_argument('--epochs', type=int, default=None,
                        help='Number of training epochs')
-    parser.add_argument('--lr_image', type=float, default=None,
-                       help='Learning rate for image encoder')
-    parser.add_argument('--lr_text', type=float, default=None,
-                       help='Learning rate for text embeddings')
+    parser.add_argument('--lr', type=float, default=None,
+                       help='Learning rate for all parameters (default: 1e-5)')
     parser.add_argument('--weight_decay', type=float, default=None,
                        help='Weight decay')
     parser.add_argument('--patience', type=int, default=None,
@@ -90,11 +88,11 @@ def parse_args():
     parser.add_argument('--focal_alpha', action='store_true',
                        help='Use class weights with focal loss')
 
-    # External test set arguments
-    parser.add_argument('--external_test', action='store_true',
-                       help='Use external test set (ChestXray14) for evaluation')
-    parser.add_argument('--external_test_path', type=str, default=None,
-                       help='Path to external test dataset (ChestXray14)')
+    # ChestXray14 test set arguments
+    parser.add_argument('--test_chestxray14', action='store_true',
+                       help='Use ChestXray14 dataset for testing')
+    parser.add_argument('--chestxray14_path', type=str, default=None,
+                       help='Path to ChestXray14 dataset (default: D:\\Data\\ChestXray14\\CXR8)')
 
     # Testing control
     parser.add_argument('--skip_test', action='store_true',
@@ -133,10 +131,9 @@ def update_config_from_args(config, args):
     # Update training config
     if args.epochs:
         config.training.epochs = args.epochs
-    if args.lr_image:
-        config.training.learning_rate_image = args.lr_image
-    if args.lr_text:
-        config.training.learning_rate_text = args.lr_text
+    if args.lr:
+        config.training.learning_rate_image = args.lr
+        config.training.learning_rate_text = args.lr
     if args.weight_decay:
         config.training.weight_decay = args.weight_decay
     if args.patience:
@@ -158,7 +155,7 @@ def update_config_from_args(config, args):
 def run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader, experiment_name=None):
     """Run zero-shot CLIP inference"""
     print("\n" + "=" * 80)
-    print("Starting Method 1: Zero-shot CLIP")
+    print("Starting Zero-shot CLIP")
     print("=" * 80)
 
     # Create zero-shot inference
@@ -168,13 +165,13 @@ def run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader, experim
     all_predictions, all_labels, all_scores = zeroshot.predict(test_loader)
 
     # Generate save name
-    save_name = experiment_name if experiment_name else "method1_zeroshot"
+    save_name = experiment_name if experiment_name else "zeroshot"
 
     # Evaluate
     evaluator = ModelEvaluator(config, config.paths.output_dir)
     results = evaluator.evaluate(
         all_labels, all_predictions,
-        "Method 1: Zero-shot CLIP (MIMIC-CXR)",
+        "Zero-shot CLIP (MIMIC-CXR)",
         save_name,
         y_scores=all_scores
     )
@@ -185,7 +182,7 @@ def run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader, experim
 def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_loader, test_loader, train_labels=None, experiment_name=None, skip_test=False):
     """Run full fine-tuning with CLIP loss (supports multi-label)"""
     print("\n" + "=" * 80)
-    print("Starting Method 2: Full Fine-Tuning with CLIP/BCE Loss")
+    print("Starting Fine-Tuning with CLIP Loss")
     print("=" * 80)
 
     # Create fine-tuned model
@@ -203,8 +200,8 @@ def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_lo
         model_name = f'{experiment_name}_best_model.pth'
         save_name = experiment_name
     else:
-        model_name = 'method2_best_model.pth'
-        save_name = 'method2_full_finetune'
+        model_name = 'finetune_best_model.pth'
+        save_name = 'finetune'
 
     # Save best model
     trainer.save_best_model(model_name)
@@ -215,19 +212,27 @@ def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_lo
         print("Training completed! Skipping test evaluation as requested.")
         print(f"Model saved to: {config.paths.output_dir}/{model_name}")
         print("=" * 80)
-        return {'best_val_f1_macro': float(trainer.best_val_f1), 'skipped_test': True}
+        return {'best_val_recall_at_5': float(trainer.best_val_f1), 'skipped_test': True}  # best_val_f1 stores R@5 now
 
     # Predict on test set
     test_preds, test_labels = trainer.predict(test_loader)
 
-    # Evaluate
+    # For contrastive learning, we don't have classification predictions
+    if test_preds is None or test_labels is None:
+        print("\n" + "=" * 80)
+        print("Contrastive learning completed!")
+        print(f"Best validation Recall@5: {trainer.best_val_f1:.2f}%")
+        print("=" * 80)
+        return {'best_val_recall_at_5': float(trainer.best_val_f1), 'training_completed': True}
+
+    # Evaluate (only if we have predictions)
     evaluator = ModelEvaluator(config, config.paths.output_dir)
     results = evaluator.evaluate(
         test_labels, test_preds,
-        "Method 2: Full Fine-Tuning - MIMIC-CXR",
+        "Fine-Tuning - MIMIC-CXR",
         save_name
     )
-    results['best_val_f1_macro'] = float(trainer.best_val_f1)
+    results['best_val_recall_at_5'] = float(trainer.best_val_f1)  # best_val_f1 stores R@5 now
 
     return results
 
@@ -249,8 +254,17 @@ def main():
     # Update configuration from arguments
     config = update_config_from_args(config, args)
 
-    # Print configuration
-    config.print_config()
+    # Print configuration (only print training config if needed)
+    if args.method in ['all', 'finetune']:
+        config.print_config()
+    else:
+        # For zero-shot only, print minimal config
+        print("=" * 80)
+        print("Running Zero-shot Evaluation")
+        print("=" * 80)
+        print(f"Model: {config.model.model_name}")
+        print(f"Output directory: {config.paths.output_dir}")
+        print("=" * 80)
 
     # Load model
     model_loader = BiomedCLIPLoader(config)
@@ -259,25 +273,30 @@ def main():
     # Wrap tokenizer
     tokenizer_wrapped = model_loader.create_tokenizer_wrapper(tokenizer)
 
-    # Load and split MIMIC-CXR data
-    data_loader = MIMICCXRDataLoader(config)
-    image_paths, labels, reports, split_info = data_loader.load_data(
-        use_provided_split=config.data.use_provided_split,
-        label_policy=config.data.label_policy
-    )
-    data_splits = data_loader.split_dataset(image_paths, labels, reports, split_info)
-
-    # Get text prompts
-    text_prompts = config.classes.get_text_prompts()
-
-    # Create data loaders
-    print("\n" + "=" * 80)
-    print("Creating data loaders...")
-    print("=" * 80)
+    # Check if we need MIMIC data
+    # Skip MIMIC loading if: zeroshot + ChestXray14 only
+    need_mimic = not (args.method == 'zeroshot' and args.test_chestxray14)
 
     train_loader = None
     val_loader = None
+    data_loader = None
+    data_splits = None
+    text_prompts = config.classes.get_text_prompts()
 
+    if need_mimic:
+        # Load and split MIMIC-CXR data
+        print("\n" + "=" * 80)
+        print("Loading MIMIC-CXR data...")
+        print("=" * 80)
+
+        data_loader = MIMICCXRDataLoader(config)
+        image_paths, labels, reports, split_info = data_loader.load_data(
+            use_provided_split=config.data.use_provided_split,
+            label_policy=config.data.label_policy
+        )
+        data_splits = data_loader.split_dataset(image_paths, labels, reports, split_info)
+
+    # Create data loaders
     if args.method in ['all', 'finetune']:
         # Create train/val loaders for fine-tuning (use reports)
         print("\nCreating fine-tuning loaders with radiology reports...")
@@ -293,13 +312,13 @@ def main():
         val_loader = val_dataset_loader['val']
 
     # Create test loader (MIMIC or ChestXray14)
-    if args.external_test:
+    if args.test_chestxray14:
         print("\n" + "=" * 80)
-        print("Using EXTERNAL TEST SET: ChestXray14")
+        print("Using ChestXray14 TEST SET")
         print("=" * 80)
 
         # Load ChestXray14 test data
-        external_data_path = args.external_test_path if args.external_test_path else r"D:\Data\ChestXray14\CXR8"
+        external_data_path = args.chestxray14_path if args.chestxray14_path else r"D:\Data\ChestXray14\CXR8"
         external_loader = ChestXray14DataLoader(config, data_path=external_data_path)
         external_image_paths, external_labels = external_loader.load_test_data()
 
@@ -327,8 +346,8 @@ def main():
 
     # Run methods
     if args.method in ['all', 'zeroshot']:
-        experiment_suffix = f"_on_{test_dataset_name}" if args.external_test else ""
-        exp_name = (args.experiment_name + experiment_suffix) if args.experiment_name else f"method1_zeroshot{experiment_suffix}"
+        experiment_suffix = f"_on_{test_dataset_name}" if args.test_chestxray14 else ""
+        exp_name = (args.experiment_name + experiment_suffix) if args.experiment_name else f"zeroshot{experiment_suffix}"
 
         result1 = run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader,
                               experiment_name=exp_name)
@@ -342,8 +361,8 @@ def main():
         # Get training labels for weighted/focal loss
         _, y_train = data_splits['train']
 
-        experiment_suffix = f"_on_{test_dataset_name}" if args.external_test else ""
-        exp_name = (args.experiment_name + experiment_suffix) if args.experiment_name else f"method2_full_finetune{experiment_suffix}"
+        experiment_suffix = f"_on_{test_dataset_name}" if args.test_chestxray14 else ""
+        exp_name = (args.experiment_name + experiment_suffix) if args.experiment_name else f"finetune{experiment_suffix}"
 
         result2 = run_finetune(config, clip_model, tokenizer, preprocess,
                               train_loader, val_loader, test_loader,

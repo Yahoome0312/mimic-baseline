@@ -36,7 +36,7 @@ class ModelConfig:
 class DataConfig:
     """Data configuration"""
     batch_size: int = 32  # Reduced for MIMIC-CXR (larger images)
-    num_workers: int = 4
+    num_workers: int = 0  # Set to 0 for Windows compatibility (avoid pickle errors)
     test_size: float = 0.2
     val_size: float = 0.1
     random_state: int = 42

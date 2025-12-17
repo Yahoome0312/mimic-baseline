@@ -50,10 +50,10 @@ python main.py --method finetune --output_dir results/default
 results/default/
 ├── class_distribution.png                    # 数据集类别分布
 ├── training_curves.png                       # 训练曲线
-├── method2_best_model.pth                    # 最佳模型
-├── method2_full_finetune_results.json        # 评估结果
-├── method2_full_finetune_confusion_matrix.png   # 混淆矩阵
-└── method2_full_finetune_per_class_recall.png   # 各类召回率
+├── finetune_best_model.pth                   # 最佳模型
+├── finetune_results.json                     # 评估结果
+├── finetune_confusion_matrix.png             # 混淆矩阵
+└── finetune_per_class_recall.png             # 各类召回率
 ```
 
 ### 自定义实验名称
@@ -119,19 +119,19 @@ results/loss_comparison/
 ```bash
 # 实验 1: lr_image=5e-6
 python main.py --method finetune \
-    --lr_image 5e-6 \
+    --lr 5e-6 \
     --output_dir results/lr_search \
     --experiment_name lr_img5e6_txt1e4
 
 # 实验 2: lr_image=1e-5
 python main.py --method finetune \
-    --lr_image 1e-5 \
+    --lr 1e-5 \
     --output_dir results/lr_search \
     --experiment_name lr_img1e5_txt1e4
 
 # 实验 3: lr_image=2e-5
 python main.py --method finetune \
-    --lr_image 2e-5 \
+    --lr 2e-5 \
     --output_dir results/lr_search \
     --experiment_name lr_img2e5_txt1e4
 ```
@@ -173,10 +173,9 @@ python main.py --method finetune \
 python main.py --method finetune \
     --loss_type weighted \
     --class_weight_method effective \
-    --lr_image 5e-6 \
-    --lr_text 1e-4 \
+    --lr 5e-6 \
     --output_dir results/production \
-    --experiment_name weighted_eff_lr5e6-1e4_20241210
+    --experiment_name weighted_eff_lr5e6_20241210
 ```
 
 ---
@@ -246,7 +245,7 @@ EXP_NAME="${LOSS_TYPE}_lr${LR_IMAGE}_$(date +%m%d)"
 
 python main.py --method finetune \
     --loss_type $LOSS_TYPE \
-    --lr_image $LR_IMAGE \
+    --lr $LR_IMAGE \
     --experiment_name $EXP_NAME
 ```
 
