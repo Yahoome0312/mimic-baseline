@@ -30,12 +30,14 @@ class ZeroShotCLIPInference:
         self.config = config
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    def predict(self, test_loader):
+    def predict(self, test_loader, threshold=0.0):
         """
         Perform zero-shot prediction
 
         Args:
             test_loader: Test data loader
+            threshold: Z-Score threshold for multi-label classification
+                      (0=mean, >0=conservative, <0=aggressive, default: 0.0)
 
         Returns:
             all_predictions: List of predictions (multi-label: N x num_classes)
@@ -67,29 +69,74 @@ class ZeroShotCLIPInference:
         print("\nPerforming Zero-shot classification...")
         is_multilabel = self.config.classes.task_type == 'multi-label'
 
+        # Track similarity statistics for debugging
+        all_similarities = []
+
         with torch.no_grad():
+            # Encode text features once (shared across all images)
+            text_features = self.model.encode_text(texts)
+            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+
             for images, _, labels in tqdm(test_loader, desc="Zero-shot inference"):
                 images = images.to(self.device)
 
-                # Get features and logits
-                image_features, text_features, logit_scale = self.model(images, texts)
+                # Encode image features
+                image_features = self.model.encode_image(images)
+                image_features = image_features / image_features.norm(dim=-1, keepdim=True)
 
-                # Calculate similarity
-                logits = (logit_scale * image_features @ text_features.t()).detach()
+                # Calculate similarity (cosine similarity, normalized features)
+                similarity = (image_features @ text_features.t()).detach()  # Range: [-1, 1]
+
+                # Collect statistics (first batch only to save memory)
+                if len(all_similarities) == 0:
+                    all_similarities.append(similarity.cpu().numpy())
 
                 if is_multilabel:
-                    # Multi-label: use sigmoid and threshold at 0.5
-                    probs = torch.sigmoid(logits)
-                    predictions = (probs > 0.5).float()
+                    # Multi-label: use Z-Score normalized similarity scores
+                    # Z-Score normalization: (x - mean) / std
+                    # After Z-Score: mean=0, std=1, range≈[-3, 3]
+                    # Threshold interpretation:
+                    #   - threshold=0: use mean as cutoff (balanced)
+                    #   - threshold>0: more conservative (higher precision)
+                    #   - threshold<0: more aggressive (higher recall)
+
+                    # Apply Z-Score normalization
+                    mean = similarity.mean()
+                    std = similarity.std() + 1e-8  # Add epsilon to avoid division by zero
+                    z_scores = (similarity - mean) / std
+
+                    predictions = (z_scores > threshold).float()
+
+                    # For AUC calculation, convert Z-scores to probabilities using sigmoid
+                    # This maps (-∞, +∞) -> (0, 1)
+                    probs = torch.sigmoid(z_scores)
                     all_scores.extend(probs.cpu().numpy())
                 else:
                     # Single-label: use softmax and argmax
+                    # Use temperature scaling (typical CLIP uses ~100)
+                    temperature = 100.0
+                    logits = similarity * temperature
                     probs = logits.softmax(dim=-1)
                     scores, predictions = probs.max(dim=-1)
                     all_scores.extend(scores.cpu().numpy())
 
                 all_predictions.extend(predictions.cpu().numpy())
                 all_labels.extend(labels.cpu().numpy())
+
+        # Print similarity statistics for debugging
+        if len(all_similarities) > 0:
+            import numpy as np
+            sim_stats = all_similarities[0]
+            print("\n" + "=" * 80)
+            print("Similarity Score Statistics (first batch):")
+            print("=" * 80)
+            print(f"Min:    {sim_stats.min():.4f}")
+            print(f"Max:    {sim_stats.max():.4f}")
+            print(f"Mean:   {sim_stats.mean():.4f}")
+            print(f"Median: {np.median(sim_stats):.4f}")
+            print(f"Std:    {sim_stats.std():.4f}")
+            print(f"Threshold used: {threshold}")
+            print("=" * 80)
 
         return all_predictions, all_labels, all_scores
 

@@ -98,6 +98,10 @@ def parse_args():
     parser.add_argument('--skip_test', action='store_true',
                        help='Skip testing after training (only train and save model)')
 
+    # Zero-shot arguments
+    parser.add_argument('--zeroshot_threshold', type=float, default=0.0,
+                       help='Z-Score threshold for zero-shot multi-label classification (0=mean, >0=conservative, <0=aggressive, default: 0.0)')
+
     # Other arguments
     parser.add_argument('--seed', type=int, default=42,
                        help='Random seed for reproducibility')
@@ -152,17 +156,18 @@ def update_config_from_args(config, args):
     return config
 
 
-def run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader, experiment_name=None):
+def run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader, experiment_name=None, threshold=0.0):
     """Run zero-shot CLIP inference"""
     print("\n" + "=" * 80)
     print("Starting Zero-shot CLIP")
     print("=" * 80)
+    print(f"Using Z-Score threshold: {threshold} (0=mean, >0=conservative, <0=aggressive)")
 
     # Create zero-shot inference
     zeroshot = ZeroShotCLIPInference(clip_model, tokenizer, config)
 
     # Predict
-    all_predictions, all_labels, all_scores = zeroshot.predict(test_loader)
+    all_predictions, all_labels, all_scores = zeroshot.predict(test_loader, threshold=threshold)
 
     # Generate save name
     save_name = experiment_name if experiment_name else "zeroshot"
@@ -350,7 +355,7 @@ def main():
         exp_name = (args.experiment_name + experiment_suffix) if args.experiment_name else f"zeroshot{experiment_suffix}"
 
         result1 = run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader,
-                              experiment_name=exp_name)
+                              experiment_name=exp_name, threshold=args.zeroshot_threshold)
         all_results.append(result1)
 
     if args.method in ['all', 'finetune']:
