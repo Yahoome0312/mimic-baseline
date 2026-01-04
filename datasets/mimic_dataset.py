@@ -54,7 +54,7 @@ class MIMICCXRDataset(Dataset):
         if self.tokenizer:
             if self.reports is not None:
                 # Use per-image report text (for fine-tuning)
-                text = self.tokenizer([self.reports[idx]])
+                text = self.tokenizer([self.reports[idx]])[0]
             elif self.text_prompts is not None:
                 # Use class prompts (for zero-shot)
                 text = self.tokenizer(self.text_prompts)

@@ -224,20 +224,12 @@ def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_lo
         print("Training completed! Skipping test evaluation as requested.")
         print(f"Model saved to: {config.paths.output_dir}/{model_name}")
         print("=" * 80)
-        return {'best_val_recall_at_5': float(trainer.best_val_f1), 'skipped_test': True}  # best_val_f1 stores R@5 now
+        return {'best_val_loss': float(trainer.best_val_loss), 'skipped_test': True}
 
-    # Predict on test set
-    test_preds, test_labels = trainer.predict(test_loader)
+    # Predict on test set using zero-shot style classification
+    test_preds, test_labels = trainer.predict(test_loader, class_names=class_names, threshold=0.0)
 
-    # For contrastive learning, we don't have classification predictions
-    if test_preds is None or test_labels is None:
-        print("\n" + "=" * 80)
-        print("Contrastive learning completed!")
-        print(f"Best validation Recall@5: {trainer.best_val_f1:.2f}%")
-        print("=" * 80)
-        return {'best_val_recall_at_5': float(trainer.best_val_f1), 'training_completed': True}
-
-    # Evaluate (only if we have predictions)
+    # Evaluate
     evaluator = ModelEvaluator(config, config.paths.output_dir)
     results = evaluator.evaluate(
         test_labels, test_preds,
@@ -245,7 +237,7 @@ def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_lo
         save_name,
         class_names=class_names
     )
-    results['best_val_recall_at_5'] = float(trainer.best_val_f1)  # best_val_f1 stores R@5 now
+    results['best_val_loss'] = float(trainer.best_val_loss)
 
     return results
 
@@ -403,7 +395,7 @@ def main():
             clip_model, tokenizer, preprocess = model_loader.load_model()
 
         # Get training labels for weighted/focal loss
-        _, y_train = data_splits['train']
+        _, y_train, _ = data_splits['train']
 
         experiment_suffix = f"_on_{test_dataset_name}" if (args.test_chestxray14 or args.test_chexpert) else ""
         exp_name = (args.experiment_name + experiment_suffix) if args.experiment_name else f"finetune{experiment_suffix}"

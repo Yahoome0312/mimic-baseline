@@ -57,12 +57,12 @@ class EarlyStopping:
             self.best_epoch = epoch
             self.counter = 0
             if self.verbose:
-                print(f"✓ Performance improved! New best_score = {score:.4f}")
+                print(f"[IMPROVED] Performance improved! New best_score = {score:.4f}")
             return True
         else:
             self.counter += 1
             if self.verbose:
-                print(f"✗ No improvement ({self.counter}/{self.patience})")
+                print(f"[NO IMPROVE] No improvement ({self.counter}/{self.patience})")
 
             if self.counter >= self.patience:
                 self.early_stop = True

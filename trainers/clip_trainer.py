@@ -172,10 +172,10 @@ class CLIPTrainer:
         # Setup scheduler
         self._setup_scheduler()
 
-        # Setup early stopping
+        # Setup early stopping (monitor validation loss)
         self.early_stopping = EarlyStopping(
             patience=config.training.early_stopping_patience,
-            mode='max',
+            mode='min',  # Lower loss is better
             verbose=True
         )
 
@@ -185,7 +185,7 @@ class CLIPTrainer:
         self.train_accs = []
         self.val_accs = []
         self.val_f1s = []
-        self.best_val_f1 = 0
+        self.best_val_loss = float('inf')  # Initialize with infinity
         self.best_model_state = None
 
     def _setup_loss_function(self, train_labels=None):
@@ -209,7 +209,7 @@ class CLIPTrainer:
         # Select loss function
         if loss_type == 'standard':
             criterion = CLIPLoss(temperature=temperature)
-            print("✓ Using standard CLIP loss")
+            print("[OK] Using standard CLIP loss")
 
         elif loss_type == 'weighted':
             criterion = WeightedCLIPLoss(
@@ -436,7 +436,9 @@ class CLIPTrainer:
 
         for k in k_values:
             # For each image, find top-k most similar texts
-            _, top_k_indices = similarity.topk(k, dim=1)  # (N, k)
+            # Ensure k does not exceed number of samples
+            k_actual = min(k, N)
+            _, top_k_indices = similarity.topk(k_actual, dim=1)  # (N, k_actual)
 
             # Check if the correct text (diagonal) is in top-k
             correct_indices = torch.arange(N).unsqueeze(1)  # (N, 1)
@@ -459,8 +461,8 @@ class CLIPTrainer:
         print(f"\nStarting training (Full Fine-Tuning with CLIP Loss)...")
         print(f"Epochs: {self.config.training.epochs}")
         print(f"Learning Rate: {self.config.training.learning_rate_image}")
-        print(f"Validation Metric: Image-to-Text Retrieval Recall@5")
-        print(f"Model saving strategy: Best Recall@5")
+        print(f"Validation Metric: Validation Loss")
+        print(f"Model saving strategy: Best Validation Loss (lowest)")
 
         for epoch in range(self.config.training.epochs):
             print(f"\nEpoch {epoch+1}/{self.config.training.epochs}")
@@ -484,12 +486,12 @@ class CLIPTrainer:
             print(f"Val Loss: {val_loss:.4f} | R@1: {recall_at_1:.2f}% | R@5: {recall_at_5:.2f}% | R@10: {recall_at_10:.2f}%")
             print(f"LR: {self.optimizer.param_groups[0]['lr']:.6f}")
 
-            # Early stopping check (based on Recall@5)
-            is_best = self.early_stopping(recall_at_5, epoch+1)
+            # Early stopping check (based on validation loss)
+            is_best = self.early_stopping(val_loss, epoch+1)
             if is_best:
-                self.best_val_f1 = recall_at_5  # Store best R@5
+                self.best_val_loss = val_loss  # Store best val loss
                 self.best_model_state = self.model.state_dict().copy()
-                print(f"✓ Best model updated! (R@5: {recall_at_5:.2f}%)")
+                print(f"[BEST] Model updated! (Val Loss: {val_loss:.4f})")
 
             if self.early_stopping.early_stop:
                 print(f"\nEarly stopping triggered! Training stopped at epoch {epoch+1}")
@@ -535,7 +537,7 @@ class CLIPTrainer:
             model_path = os.path.join(self.output_dir, filename)
             torch.save(self.best_model_state, model_path)
             print(f"\nBest model saved to: {model_path}")
-            print(f"Model selected based on: Best Recall@5 = {self.best_val_f1:.2f}%")
+            print(f"Model selected based on: Best Validation Loss = {self.best_val_loss:.4f}")
             return model_path
         else:
             print("No best model state found!")
@@ -545,7 +547,7 @@ class CLIPTrainer:
         """Load best model state"""
         if self.best_model_state is not None:
             self.model.load_state_dict(self.best_model_state)
-            print(f"Loaded best model (Best Val Recall@5: {self.best_val_f1:.2f}%)")
+            print(f"Loaded best model (Best Val Loss: {self.best_val_loss:.4f})")
         else:
             print("No best model state found!")
 
