@@ -1,0 +1,18 @@
+{
+  "dataset_name": "ChestXDet10",
+  "num_classes": 10,
+  "task_type": "multi-label",
+  "class_names": [
+    "Atelectasis",
+    "Calcification",
+    "Consolidation",
+    "Effusion",
+    "Emphysema",
+    "Fibrosis",
+    "Fracture",
+    "Mass",
+    "Nodule",
+    "Pneumothorax"
+  ],
+  "description": "10 pathology classes from ChestX-Det10 dataset"
+}
