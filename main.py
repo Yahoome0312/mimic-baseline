@@ -31,7 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import Config
 from models import BiomedCLIPLoader, CLIPFineTune
-from datasets import MIMICCXRDataLoader, ChestXray14DataLoader
+from datasets import MIMICCXRDataLoader, ChestXray14DataLoader, CheXpertDataLoader
 from trainers import ZeroShotCLIPInference, CLIPTrainer
 from evaluators import ModelEvaluator
 from utils import set_seed, print_device_info, load_class_names
@@ -93,6 +93,12 @@ def parse_args():
                        help='Use ChestXray14 dataset for testing')
     parser.add_argument('--chestxray14_path', type=str, default=None,
                        help='Path to ChestXray14 dataset (default: D:\\Data\\ChestXray14\\CXR8)')
+
+    # CheXpert test set arguments
+    parser.add_argument('--test_chexpert', action='store_true',
+                       help='Use CheXpert dataset for testing')
+    parser.add_argument('--chexpert_path', type=str, default=None,
+                       help='Path to CheXpert dataset (default: D:\\Data\\CheXpert\\CheXpert-v1.0-small)')
 
     # Testing control
     parser.add_argument('--skip_test', action='store_true',
@@ -281,8 +287,8 @@ def main():
     tokenizer_wrapped = model_loader.create_tokenizer_wrapper(tokenizer)
 
     # Check if we need MIMIC data
-    # Skip MIMIC loading if: zeroshot + ChestXray14 only
-    need_mimic = not (args.method == 'zeroshot' and args.test_chestxray14)
+    # Skip MIMIC loading if: zeroshot + (ChestXray14 or CheXpert) only
+    need_mimic = not (args.method == 'zeroshot' and (args.test_chestxray14 or args.test_chexpert))
 
     train_loader = None
     val_loader = None
@@ -318,7 +324,7 @@ def main():
         train_loader = train_dataset_loader['train']
         val_loader = val_dataset_loader['val']
 
-    # Create test loader (MIMIC or ChestXray14)
+    # Create test loader (MIMIC, ChestXray14, or CheXpert)
     if args.test_chestxray14:
         print("\n" + "=" * 80)
         print("Using ChestXray14 TEST SET")
@@ -338,6 +344,25 @@ def main():
             preprocess, tokenizer_wrapped, chestxray14_prompts
         )
         test_dataset_name = "ChestXray14"
+    elif args.test_chexpert:
+        print("\n" + "=" * 80)
+        print("Using CheXpert VALIDATION SET")
+        print("=" * 80)
+
+        # Load CheXpert validation data
+        external_data_path = args.chexpert_path if args.chexpert_path else r"D:\Data\CheXpert\CheXpert-v1.0-small"
+        external_loader = CheXpertDataLoader(config, data_path=external_data_path)
+        external_image_paths, external_labels = external_loader.load_valid_data()
+
+        # Use CheXpert class names for text prompts
+        chexpert_prompts = [f"chest x-ray showing {cls.lower().replace('_', ' ')}"
+                           for cls in external_loader.CHEXPERT_CLASSES]
+
+        test_loader = external_loader.create_dataloader(
+            external_image_paths, external_labels,
+            preprocess, tokenizer_wrapped, chexpert_prompts
+        )
+        test_dataset_name = "CheXpert"
     else:
         # Use MIMIC-CXR test set (use text prompts for zero-shot evaluation)
         print("\nCreating test loader with text prompts (for zero-shot)...")
@@ -352,6 +377,9 @@ def main():
     if args.test_chestxray14:
         # Load ChestXray14 class names from config file
         eval_class_names = load_class_names('chestxray14')
+    elif args.test_chexpert:
+        # Load CheXpert class names from config file
+        eval_class_names = load_class_names('chexpert')
     else:
         # Load MIMIC-CXR class names from config file
         eval_class_names = load_class_names('mimic_cxr')
@@ -361,7 +389,7 @@ def main():
 
     # Run methods
     if args.method in ['all', 'zeroshot']:
-        experiment_suffix = f"_on_{test_dataset_name}" if args.test_chestxray14 else ""
+        experiment_suffix = f"_on_{test_dataset_name}" if (args.test_chestxray14 or args.test_chexpert) else ""
         exp_name = (args.experiment_name + experiment_suffix) if args.experiment_name else f"zeroshot{experiment_suffix}"
 
         result1 = run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader,
@@ -377,7 +405,7 @@ def main():
         # Get training labels for weighted/focal loss
         _, y_train = data_splits['train']
 
-        experiment_suffix = f"_on_{test_dataset_name}" if args.test_chestxray14 else ""
+        experiment_suffix = f"_on_{test_dataset_name}" if (args.test_chestxray14 or args.test_chexpert) else ""
         exp_name = (args.experiment_name + experiment_suffix) if args.experiment_name else f"finetune{experiment_suffix}"
 
         result2 = run_finetune(config, clip_model, tokenizer, preprocess,

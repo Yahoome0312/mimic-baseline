@@ -163,13 +163,13 @@ class ModelEvaluator:
                     if y_true[:, i].sum() > 0:  # Only if class has positive samples
                         auc_per_class[cls] = roc_auc_score(y_true[:, i], y_scores[:, i])
                     else:
-                        auc_per_class[cls] = 0.0
+                        auc_per_class[cls] = np.nan  # 1.4(because of chexpert dataset)Use nan for classes without positive samples
 
-                # Try to calculate macro AUC
-                auc_macro = roc_auc_score(y_true, y_scores, average='macro')
+                # 1.4 Calculate macro AUC using nanmean (ignores classes without positive samples)
+                auc_macro = np.nanmean(list(auc_per_class.values()))
             except Exception as e:
                 print(f"Warning: Could not calculate AUC scores: {e}")
-                auc_per_class = {cls: 0.0 for cls in class_names}
+                auc_per_class = {cls: np.nan for cls in class_names}
 
         # Print results
         print(f"\nOverall Multi-Label Metrics:")
