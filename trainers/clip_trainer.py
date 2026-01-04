@@ -30,14 +30,15 @@ class ZeroShotCLIPInference:
         self.config = config
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    def predict(self, test_loader, threshold=0.0):
+    def predict(self, test_loader, threshold=0.0, class_names=None):
         """
         Perform zero-shot prediction
 
         Args:
             test_loader: Test data loader
-            threshold: Z-Score threshold for multi-label classification
-                      (0=mean, >0=conservative, <0=aggressive, default: 0.0)
+            threshold: Cosine similarity threshold for multi-label classification
+                      (range: [-1, 1], higher=more conservative, default: 0.0)
+            class_names: Optional list of class names (overrides config.classes.class_names)
 
         Returns:
             all_predictions: List of predictions (multi-label: N x num_classes)
@@ -51,10 +52,18 @@ class ZeroShotCLIPInference:
         self.model.to(self.device)
         self.model.eval()
 
-        # Prepare text prompts
-        text_prompts = self.config.classes.get_text_prompts()
+        # Use custom class names if provided, otherwise use config class names
+        if class_names is not None:
+            # Generate text prompts for custom class names
+            text_prompts = [f"chest x-ray showing {cls.lower().replace('_', ' ')}" for cls in class_names]
+            display_class_names = class_names
+        else:
+            # Use default MIMIC class names
+            text_prompts = self.config.classes.get_text_prompts()
+            display_class_names = self.config.classes.class_names
+
         print("\nText prompts used:")
-        for i, (cls, prompt) in enumerate(zip(self.config.classes.class_names, text_prompts)):
+        for i, (cls, prompt) in enumerate(zip(display_class_names, text_prompts)):
             print(f"  {cls}: {prompt}")
 
         # Encode text
@@ -92,25 +101,17 @@ class ZeroShotCLIPInference:
                     all_similarities.append(similarity.cpu().numpy())
 
                 if is_multilabel:
-                    # Multi-label: use Z-Score normalized similarity scores
-                    # Z-Score normalization: (x - mean) / std
-                    # After Z-Score: mean=0, std=1, range≈[-3, 3]
-                    # Threshold interpretation:
-                    #   - threshold=0: use mean as cutoff (balanced)
-                    #   - threshold>0: more conservative (higher precision)
-                    #   - threshold<0: more aggressive (higher recall)
+                    # Multi-label: use raw cosine similarity as scores
+                    # Cosine similarity range: [-1, 1]
+                    # Higher similarity = higher probability of the class being present
 
-                    # Apply Z-Score normalization
-                    mean = similarity.mean()
-                    std = similarity.std() + 1e-8  # Add epsilon to avoid division by zero
-                    z_scores = (similarity - mean) / std
+                    # Use threshold for binary predictions
+                    # Note: threshold is in similarity space, not z-score space
+                    predictions = (similarity > threshold).float()
 
-                    predictions = (z_scores > threshold).float()
-
-                    # For AUC calculation, convert Z-scores to probabilities using sigmoid
-                    # This maps (-∞, +∞) -> (0, 1)
-                    probs = torch.sigmoid(z_scores)
-                    all_scores.extend(probs.cpu().numpy())
+                    # For AUC calculation, use raw cosine similarity scores
+                    # AUC metric handles the raw similarity values correctly
+                    all_scores.extend(similarity.cpu().numpy())
                 else:
                     # Single-label: use softmax and argmax
                     # Use temperature scaling (typical CLIP uses ~100)

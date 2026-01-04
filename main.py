@@ -34,7 +34,7 @@ from models import BiomedCLIPLoader, CLIPFineTune
 from datasets import MIMICCXRDataLoader, ChestXray14DataLoader
 from trainers import ZeroShotCLIPInference, CLIPTrainer
 from evaluators import ModelEvaluator
-from utils import set_seed, print_device_info
+from utils import set_seed, print_device_info, load_class_names
 
 
 def parse_args():
@@ -100,7 +100,7 @@ def parse_args():
 
     # Zero-shot arguments
     parser.add_argument('--zeroshot_threshold', type=float, default=0.0,
-                       help='Z-Score threshold for zero-shot multi-label classification (0=mean, >0=conservative, <0=aggressive, default: 0.0)')
+                       help='Cosine similarity threshold for zero-shot multi-label classification (range: [-1, 1], higher=more conservative, default: 0.0)')
 
     # Other arguments
     parser.add_argument('--seed', type=int, default=42,
@@ -156,18 +156,18 @@ def update_config_from_args(config, args):
     return config
 
 
-def run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader, experiment_name=None, threshold=0.0):
+def run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader, experiment_name=None, threshold=0.0, class_names=None):
     """Run zero-shot CLIP inference"""
     print("\n" + "=" * 80)
     print("Starting Zero-shot CLIP")
     print("=" * 80)
-    print(f"Using Z-Score threshold: {threshold} (0=mean, >0=conservative, <0=aggressive)")
+    print(f"Using cosine similarity threshold: {threshold} (range: [-1, 1], higher=more conservative)")
 
     # Create zero-shot inference
     zeroshot = ZeroShotCLIPInference(clip_model, tokenizer, config)
 
-    # Predict
-    all_predictions, all_labels, all_scores = zeroshot.predict(test_loader, threshold=threshold)
+    # Predict (pass class_names to use correct text prompts)
+    all_predictions, all_labels, all_scores = zeroshot.predict(test_loader, threshold=threshold, class_names=class_names)
 
     # Generate save name
     save_name = experiment_name if experiment_name else "zeroshot"
@@ -178,13 +178,14 @@ def run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader, experim
         all_labels, all_predictions,
         "Zero-shot CLIP (MIMIC-CXR)",
         save_name,
-        y_scores=all_scores
+        y_scores=all_scores,
+        class_names=class_names
     )
 
     return results
 
 
-def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_loader, test_loader, train_labels=None, experiment_name=None, skip_test=False):
+def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_loader, test_loader, train_labels=None, experiment_name=None, skip_test=False, class_names=None):
     """Run full fine-tuning with CLIP loss (supports multi-label)"""
     print("\n" + "=" * 80)
     print("Starting Fine-Tuning with CLIP Loss")
@@ -235,7 +236,8 @@ def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_lo
     results = evaluator.evaluate(
         test_labels, test_preds,
         "Fine-Tuning - MIMIC-CXR",
-        save_name
+        save_name,
+        class_names=class_names
     )
     results['best_val_recall_at_5'] = float(trainer.best_val_f1)  # best_val_f1 stores R@5 now
 
@@ -346,6 +348,14 @@ def main():
         test_loader = test_dataset_loader['test']
         test_dataset_name = "MIMIC-CXR"
 
+    # Automatically load class names based on test dataset
+    if args.test_chestxray14:
+        # Load ChestXray14 class names from config file
+        eval_class_names = load_class_names('chestxray14')
+    else:
+        # Load MIMIC-CXR class names from config file
+        eval_class_names = load_class_names('mimic_cxr')
+
     # Store all results
     all_results = []
 
@@ -355,7 +365,8 @@ def main():
         exp_name = (args.experiment_name + experiment_suffix) if args.experiment_name else f"zeroshot{experiment_suffix}"
 
         result1 = run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader,
-                              experiment_name=exp_name, threshold=args.zeroshot_threshold)
+                              experiment_name=exp_name, threshold=args.zeroshot_threshold,
+                              class_names=eval_class_names)
         all_results.append(result1)
 
     if args.method in ['all', 'finetune']:
@@ -372,7 +383,7 @@ def main():
         result2 = run_finetune(config, clip_model, tokenizer, preprocess,
                               train_loader, val_loader, test_loader,
                               train_labels=y_train, experiment_name=exp_name,
-                              skip_test=args.skip_test)
+                              skip_test=args.skip_test, class_names=eval_class_names)
         all_results.append(result2)
 
     # Compare results if multiple methods were run

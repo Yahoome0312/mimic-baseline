@@ -1,0 +1,22 @@
+{
+  "dataset_name": "ChestXray14",
+  "num_classes": 14,
+  "task_type": "multi-label",
+  "class_names": [
+    "Atelectasis",
+    "Cardiomegaly",
+    "Consolidation",
+    "Edema",
+    "Effusion",
+    "Emphysema",
+    "Fibrosis",
+    "Hernia",
+    "Infiltration",
+    "Mass",
+    "Nodule",
+    "Pleural_Thickening",
+    "Pneumonia",
+    "Pneumothorax"
+  ],
+  "description": "14 pathology classes from NIH ChestX-ray14 dataset"
+}

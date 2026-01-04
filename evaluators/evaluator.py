@@ -36,7 +36,7 @@ class ModelEvaluator:
         self.class_names = config.classes.class_names
         os.makedirs(output_dir, exist_ok=True)
 
-    def evaluate(self, y_true, y_pred, method_name, save_path=None, y_scores=None):
+    def evaluate(self, y_true, y_pred, method_name, save_path=None, y_scores=None, class_names=None):
         """
         Evaluate model performance (supports both single-label and multi-label)
 
@@ -46,6 +46,7 @@ class ModelEvaluator:
             method_name: Method name for display
             save_path: Prefix for saved files
             y_scores: Prediction scores (for AUC calculation in multi-label)
+            class_names: Optional list of class names (overrides config.classes.class_names)
 
         Returns:
             Dictionary containing evaluation results
@@ -54,14 +55,17 @@ class ModelEvaluator:
         print(f"{method_name} - Evaluation Results")
         print("=" * 80)
 
+        # Use custom class names if provided, otherwise use config class names
+        eval_class_names = class_names if class_names is not None else self.class_names
+
         is_multilabel = self.config.classes.task_type == 'multi-label'
 
         if is_multilabel:
-            return self._evaluate_multilabel(y_true, y_pred, method_name, save_path, y_scores)
+            return self._evaluate_multilabel(y_true, y_pred, method_name, save_path, y_scores, eval_class_names)
         else:
-            return self._evaluate_singlelabel(y_true, y_pred, method_name, save_path)
+            return self._evaluate_singlelabel(y_true, y_pred, method_name, save_path, eval_class_names)
 
-    def _evaluate_singlelabel(self, y_true, y_pred, method_name, save_path):
+    def _evaluate_singlelabel(self, y_true, y_pred, method_name, save_path, class_names):
         """Evaluate single-label classification"""
         # Calculate various metrics
         accuracy = accuracy_score(y_true, y_pred)
@@ -80,12 +84,12 @@ class ModelEvaluator:
         print(f"  F1-score (Weighted): {f1_weighted:.4f}")
 
         print(f"\nF1-score per class:")
-        for i, cls in enumerate(self.class_names):
+        for i, cls in enumerate(class_names):
             print(f"  {cls}: {f1_per_class[i]:.4f}")
 
         # Detailed classification report
         print(f"\nDetailed Classification Report:")
-        report = classification_report(y_true, y_pred, target_names=self.class_names, digits=4, zero_division=0)
+        report = classification_report(y_true, y_pred, target_names=class_names, digits=4, zero_division=0)
         print(report)
 
         # Confusion matrix
@@ -111,11 +115,11 @@ class ModelEvaluator:
             'balanced_accuracy': float(balanced_acc),
             'f1_macro': float(f1_macro),
             'f1_weighted': float(f1_weighted),
-            'f1_per_class': {self.class_names[i]: float(f1_per_class[i]) for i in range(len(self.class_names))},
+            'f1_per_class': {class_names[i]: float(f1_per_class[i]) for i in range(len(class_names))},
             'recall_per_class': per_class_recall,
             'samples_per_class': per_class_count,
             'confusion_matrix': cm.tolist(),
-            'classification_report': classification_report(y_true, y_pred, target_names=self.class_names, output_dict=True, zero_division=0)
+            'classification_report': classification_report(y_true, y_pred, target_names=class_names, output_dict=True, zero_division=0)
         }
 
         if save_path:
@@ -124,7 +128,7 @@ class ModelEvaluator:
 
         return results
 
-    def _evaluate_multilabel(self, y_true, y_pred, method_name, save_path, y_scores=None):
+    def _evaluate_multilabel(self, y_true, y_pred, method_name, save_path, y_scores=None, class_names=None):
         """Evaluate multi-label classification"""
         # Convert to numpy arrays
         y_true = np.array(y_true)
@@ -155,7 +159,7 @@ class ModelEvaluator:
         if y_scores is not None:
             y_scores = np.array(y_scores)
             try:
-                for i, cls in enumerate(self.class_names):
+                for i, cls in enumerate(class_names):
                     if y_true[:, i].sum() > 0:  # Only if class has positive samples
                         auc_per_class[cls] = roc_auc_score(y_true[:, i], y_scores[:, i])
                     else:
@@ -165,7 +169,7 @@ class ModelEvaluator:
                 auc_macro = roc_auc_score(y_true, y_scores, average='macro')
             except Exception as e:
                 print(f"Warning: Could not calculate AUC scores: {e}")
-                auc_per_class = {cls: 0.0 for cls in self.class_names}
+                auc_per_class = {cls: 0.0 for cls in class_names}
 
         # Print results
         print(f"\nOverall Multi-Label Metrics:")
@@ -184,7 +188,7 @@ class ModelEvaluator:
         print(f"\nPer-Class Metrics:")
         print(f"{'Class':<30} {'Precision':<12} {'Recall':<12} {'F1-Score':<12} {'AUC-ROC':<12} {'Support':<12}")
         print("=" * 100)
-        for i, cls in enumerate(self.class_names):
+        for i, cls in enumerate(class_names):
             support = int(y_true[:, i].sum())
             auc_str = f"{auc_per_class.get(cls, 0.0):.4f}" if auc_per_class else "N/A"
             print(f"{cls:<30} {precision_per_class[i]:<12.4f} {recall_per_class[i]:<12.4f} "
@@ -210,10 +214,10 @@ class ModelEvaluator:
             'precision_micro': float(precision_micro),
             'recall_micro': float(recall_micro),
             'f1_micro': float(f1_micro),
-            'precision_per_class': {self.class_names[i]: float(precision_per_class[i]) for i in range(len(self.class_names))},
-            'recall_per_class': {self.class_names[i]: float(recall_per_class[i]) for i in range(len(self.class_names))},
-            'f1_per_class': {self.class_names[i]: float(f1_per_class[i]) for i in range(len(self.class_names))},
-            'support_per_class': {self.class_names[i]: int(y_true[:, i].sum()) for i in range(len(self.class_names))},
+            'precision_per_class': {class_names[i]: float(precision_per_class[i]) for i in range(len(class_names))},
+            'recall_per_class': {class_names[i]: float(recall_per_class[i]) for i in range(len(class_names))},
+            'f1_per_class': {class_names[i]: float(f1_per_class[i]) for i in range(len(class_names))},
+            'support_per_class': {class_names[i]: int(y_true[:, i].sum()) for i in range(len(class_names))},
         }
 
         if auc_macro is not None:

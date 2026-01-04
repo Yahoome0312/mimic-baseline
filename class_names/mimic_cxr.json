@@ -1,0 +1,22 @@
+{
+  "dataset_name": "MIMIC-CXR",
+  "num_classes": 14,
+  "task_type": "multi-label",
+  "class_names": [
+    "Atelectasis",
+    "Cardiomegaly",
+    "Consolidation",
+    "Edema",
+    "Enlarged Cardiomediastinum",
+    "Fracture",
+    "Lung Lesion",
+    "Lung Opacity",
+    "No Finding",
+    "Pleural Effusion",
+    "Pleural Other",
+    "Pneumonia",
+    "Pneumothorax",
+    "Support Devices"
+  ],
+  "description": "14 CheXpert pathology classes for chest X-ray multi-label classification"
+}

@@ -2,6 +2,8 @@
 Utility helper functions
 """
 
+import os
+import json
 import torch
 
 
@@ -137,3 +139,84 @@ def print_device_info():
             print(f"  GPU {i}: {torch.cuda.get_device_name(i)}")
             print(f"    Memory: {torch.cuda.get_device_properties(i).total_memory / 1024**3:.2f} GB")
     print("=" * 80 + "\n")
+
+
+def load_class_names(dataset_name, class_names_dir=None):
+    """
+    Load class names from JSON configuration file
+
+    Args:
+        dataset_name: Name of the dataset (e.g., 'mimic_cxr', 'chestxray14')
+        class_names_dir: Directory containing class name JSON files
+                        (default: project_root/class_names/)
+
+    Returns:
+        List of class names
+
+    Raises:
+        FileNotFoundError: If class names file doesn't exist
+        ValueError: If JSON file is invalid
+    """
+    # Default to project root/class_names/
+    if class_names_dir is None:
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        class_names_dir = os.path.join(project_root, 'class_names')
+
+    # Construct file path
+    config_file = os.path.join(class_names_dir, f'{dataset_name}.json')
+
+    # Check if file exists
+    if not os.path.exists(config_file):
+        raise FileNotFoundError(
+            f"Class names configuration file not found: {config_file}\n"
+            f"Available datasets: {list_available_datasets(class_names_dir)}"
+        )
+
+    # Load JSON
+    try:
+        with open(config_file, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON in {config_file}: {e}")
+
+    # Extract class names
+    if 'class_names' not in config:
+        raise ValueError(f"'class_names' field not found in {config_file}")
+
+    class_names = config['class_names']
+
+    # Print info
+    print(f"\n{'='*80}")
+    print(f"Loaded class names for: {config.get('dataset_name', dataset_name)}")
+    print(f"{'='*80}")
+    print(f"Number of classes: {len(class_names)}")
+    print(f"Task type: {config.get('task_type', 'N/A')}")
+    print(f"Classes: {', '.join(class_names)}")
+    print(f"{'='*80}\n")
+
+    return class_names
+
+
+def list_available_datasets(class_names_dir=None):
+    """
+    List all available datasets with class name configurations
+
+    Args:
+        class_names_dir: Directory containing class name JSON files
+
+    Returns:
+        List of dataset names (without .json extension)
+    """
+    if class_names_dir is None:
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        class_names_dir = os.path.join(project_root, 'class_names')
+
+    if not os.path.exists(class_names_dir):
+        return []
+
+    datasets = []
+    for filename in os.listdir(class_names_dir):
+        if filename.endswith('.json'):
+            datasets.append(filename[:-5])  # Remove .json extension
+
+    return sorted(datasets)
