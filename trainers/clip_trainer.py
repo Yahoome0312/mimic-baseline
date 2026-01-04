@@ -13,6 +13,7 @@ from sklearn.metrics import f1_score, roc_auc_score
 
 from models import CLIPLoss, WeightedCLIPLoss, FocalCLIPLoss, CLIPFineTune, compute_class_weights
 from utils import EarlyStopping
+from .inference import clip_inference
 
 
 class ZeroShotCLIPInference:
@@ -48,94 +49,45 @@ class ZeroShotCLIPInference:
         print("\n" + "=" * 80)
         print("Zero-shot CLIP")
         print("=" * 80)
+        print(f"Using cosine similarity threshold: {threshold} (range: [-1, 1], higher=more conservative)")
 
-        self.model.to(self.device)
-        self.model.eval()
+        # Class names must be provided
+        if class_names is None:
+            raise ValueError("class_names parameter is required (load from JSON using utils.load_class_names)")
 
-        # Use custom class names if provided, otherwise use config class names
-        if class_names is not None:
-            # Generate text prompts for custom class names
-            text_prompts = [f"chest x-ray showing {cls.lower().replace('_', ' ')}" for cls in class_names]
-            display_class_names = class_names
-        else:
-            # Use default MIMIC class names
-            text_prompts = self.config.classes.get_text_prompts()
-            display_class_names = self.config.classes.class_names
-
+        # Display text prompts
+        text_prompts = [f"chest x-ray showing {cls.lower().replace('_', ' ')}" for cls in class_names]
         print("\nText prompts used:")
-        for i, (cls, prompt) in enumerate(zip(display_class_names, text_prompts)):
+        for i, (cls, prompt) in enumerate(zip(class_names, text_prompts)):
             print(f"  {cls}: {prompt}")
 
-        # Encode text
-        print("\nEncoding text features...")
-        texts = self.tokenizer(text_prompts, context_length=self.config.model.context_length).to(self.device)
+        # Use universal inference function
+        all_predictions, all_labels, all_scores = clip_inference(
+            clip_model=self.model,
+            test_loader=test_loader,
+            class_names=class_names,
+            tokenizer=self.tokenizer,
+            config=self.config,
+            threshold=threshold,
+            device=self.device
+        )
 
-        # Zero-shot prediction
-        all_predictions = []
-        all_labels = []
-        all_scores = []
+        # Print similarity statistics for debugging (using first few scores)
+        import numpy as np
+        all_scores_np = np.array(all_scores)
+        if len(all_scores_np) > 0:
+            # Sample first batch for statistics
+            sample_size = min(len(all_scores_np), 32)
+            sample_scores = all_scores_np[:sample_size]
 
-        print("\nPerforming Zero-shot classification...")
-        is_multilabel = self.config.classes.task_type == 'multi-label'
-
-        # Track similarity statistics for debugging
-        all_similarities = []
-
-        with torch.no_grad():
-            # Encode text features once (shared across all images)
-            text_features = self.model.encode_text(texts)
-            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-
-            for images, _, labels in tqdm(test_loader, desc="Zero-shot inference"):
-                images = images.to(self.device)
-
-                # Encode image features
-                image_features = self.model.encode_image(images)
-                image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-
-                # Calculate similarity (cosine similarity, normalized features)
-                similarity = (image_features @ text_features.t()).detach()  # Range: [-1, 1]
-
-                # Collect statistics (first batch only to save memory)
-                if len(all_similarities) == 0:
-                    all_similarities.append(similarity.cpu().numpy())
-
-                if is_multilabel:
-                    # Multi-label: use raw cosine similarity as scores
-                    # Cosine similarity range: [-1, 1]
-                    # Higher similarity = higher probability of the class being present
-
-                    # Use threshold for binary predictions
-                    # Note: threshold is in similarity space, not z-score space
-                    predictions = (similarity > threshold).float()
-
-                    # For AUC calculation, use raw cosine similarity scores
-                    # AUC metric handles the raw similarity values correctly
-                    all_scores.extend(similarity.cpu().numpy())
-                else:
-                    # Single-label: use softmax and argmax
-                    # Use temperature scaling (typical CLIP uses ~100)
-                    temperature = 100.0
-                    logits = similarity * temperature
-                    probs = logits.softmax(dim=-1)
-                    scores, predictions = probs.max(dim=-1)
-                    all_scores.extend(scores.cpu().numpy())
-
-                all_predictions.extend(predictions.cpu().numpy())
-                all_labels.extend(labels.cpu().numpy())
-
-        # Print similarity statistics for debugging
-        if len(all_similarities) > 0:
-            import numpy as np
-            sim_stats = all_similarities[0]
             print("\n" + "=" * 80)
             print("Similarity Score Statistics (first batch):")
             print("=" * 80)
-            print(f"Min:    {sim_stats.min():.4f}")
-            print(f"Max:    {sim_stats.max():.4f}")
-            print(f"Mean:   {sim_stats.mean():.4f}")
-            print(f"Median: {np.median(sim_stats):.4f}")
-            print(f"Std:    {sim_stats.std():.4f}")
+            print(f"Min:    {sample_scores.min():.4f}")
+            print(f"Max:    {sample_scores.max():.4f}")
+            print(f"Mean:   {sample_scores.mean():.4f}")
+            print(f"Median: {np.median(sample_scores):.4f}")
+            print(f"Std:    {sample_scores.std():.4f}")
             print(f"Threshold used: {threshold}")
             print("=" * 80)
 
@@ -266,7 +218,7 @@ class CLIPTrainer:
         """Train one epoch"""
         self.model.train()
         total_loss = 0
-        is_multilabel = self.config.classes.task_type == 'multi-label'
+        is_multilabel = True  # MIMIC-CXR and chest X-ray datasets are multi-label
 
         # For multi-label accuracy tracking
         if is_multilabel:
@@ -551,20 +503,44 @@ class CLIPTrainer:
         else:
             print("No best model state found!")
 
-    def predict(self, test_loader):
+    def predict(self, test_loader, class_names=None, threshold=0.0):
         """
         Predict on test set
-        Note: For contrastive learning, we don't have direct predictions
-        This method needs to be called only if doing downstream classification
 
         Args:
             test_loader: Test data loader
+            class_names: List of class names for generating text prompts
+            threshold: Similarity threshold for multi-label classification (default: 0.0)
 
         Returns:
-            None, None (placeholder)
+            predictions: Array of predictions (N, num_classes)
+            labels: Array of true labels (N, num_classes)
+            scores: Array of raw similarity scores (N, num_classes) for AUC calculation
         """
         self.load_best_model()
-        # For contrastive learning with reports, we don't generate class predictions
-        # Return None to indicate this is not applicable
-        print("\n[Note] Contrastive learning model - skipping classification predictions")
-        return None, None
+        self.model.eval()
+
+        # Class names must be provided
+        if class_names is None:
+            raise ValueError("class_names parameter is required (load from JSON using utils.load_class_names)")
+
+        print(f"\n[Classification] Using zero-shot style prediction with {len(class_names)} classes")
+        print(f"Threshold: {threshold}")
+
+        # Load tokenizer for universal inference function
+        from models import BiomedCLIPLoader
+        model_loader = BiomedCLIPLoader(self.config)
+        _, tokenizer, _ = model_loader.load_model()
+
+        # Use universal inference function
+        all_predictions, all_labels, all_scores = clip_inference(
+            clip_model=self.model.clip_model,  # Use wrapped CLIP model
+            test_loader=test_loader,
+            class_names=class_names,
+            tokenizer=tokenizer,
+            config=self.config,
+            threshold=threshold,
+            device=self.device
+        )
+
+        return all_predictions, all_labels, all_scores

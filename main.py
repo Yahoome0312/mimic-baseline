@@ -34,7 +34,7 @@ from models import BiomedCLIPLoader, CLIPFineTune
 from datasets import MIMICCXRDataLoader, ChestXray14DataLoader, CheXpertDataLoader
 from trainers import ZeroShotCLIPInference, CLIPTrainer
 from evaluators import ModelEvaluator
-from utils import set_seed, print_device_info, load_class_names
+from utils import set_seed, print_device_info, load_class_names, load_class_config
 
 
 def parse_args():
@@ -198,7 +198,8 @@ def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_lo
     print("=" * 80)
 
     # Create fine-tuned model
-    model = CLIPFineTune(clip_model, config.classes.num_classes)
+    num_classes = len(class_names) if class_names is not None else 14  # Default to MIMIC-CXR
+    model = CLIPFineTune(clip_model, num_classes)
 
     # Create trainer (pass train_labels for weighted/focal losses)
     trainer = CLIPTrainer(model, config, config.paths.output_dir,
@@ -227,7 +228,7 @@ def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_lo
         return {'best_val_loss': float(trainer.best_val_loss), 'skipped_test': True}
 
     # Predict on test set using zero-shot style classification
-    test_preds, test_labels = trainer.predict(test_loader, class_names=class_names, threshold=0.0)
+    test_preds, test_labels, test_scores = trainer.predict(test_loader, class_names=class_names, threshold=0.0)
 
     # Evaluate
     evaluator = ModelEvaluator(config, config.paths.output_dir)
@@ -235,6 +236,7 @@ def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_lo
         test_labels, test_preds,
         "Fine-Tuning - MIMIC-CXR",
         save_name,
+        y_scores=test_scores,
         class_names=class_names
     )
     results['best_val_loss'] = float(trainer.best_val_loss)
@@ -286,7 +288,11 @@ def main():
     val_loader = None
     data_loader = None
     data_splits = None
-    text_prompts = config.classes.get_text_prompts()
+
+    # Load MIMIC-CXR class configuration for text prompts
+    mimic_class_config = load_class_config('mimic_cxr', verbose=False)
+    text_prompts = [f"chest x-ray showing {cls.lower().replace('_', ' ')}"
+                    for cls in mimic_class_config['class_names']]
 
     if need_mimic:
         # Load and split MIMIC-CXR data

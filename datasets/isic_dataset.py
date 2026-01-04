@@ -67,7 +67,8 @@ class ISIC2019DataLoader:
             config: Configuration object
         """
         self.config = config
-        self.class_names = config.classes.class_names
+        # Note: class_names should be loaded from JSON for specific dataset
+        # Example: from utils import load_class_names; self.class_names = load_class_names('isic_2019')
         self.base_data_path = config.paths.base_data_path
         self.output_dir = config.paths.output_dir
 

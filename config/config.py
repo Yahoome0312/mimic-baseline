@@ -69,61 +69,12 @@ class TrainingConfig:
 
 
 @dataclass
-class ClassConfig:
-    """Class configuration for MIMIC-CXR (CheXpert labels)"""
-    # Class descriptions (14 CheXpert classes for chest X-ray)
-    class_descriptions: Dict[str, str] = field(default_factory=lambda: {
-        'Atelectasis': 'atelectasis',
-        'Cardiomegaly': 'cardiomegaly',
-        'Consolidation': 'consolidation',
-        'Edema': 'edema',
-        'Enlarged Cardiomediastinum': 'enlarged cardiomediastinum',
-        'Fracture': 'fracture',
-        'Lung Lesion': 'lung lesion',
-        'Lung Opacity': 'lung opacity',
-        'No Finding': 'no finding',
-        'Pleural Effusion': 'pleural effusion',
-        'Pleural Other': 'pleural abnormality',
-        'Pneumonia': 'pneumonia',
-        'Pneumothorax': 'pneumothorax',
-        'Support Devices': 'support devices',
-    })
-
-    # Task type: 'multi-label' for MIMIC-CXR, 'single-label' for ISIC
-    task_type: str = 'multi-label'
-
-    @property
-    def class_names(self) -> List[str]:
-        """Get list of class names"""
-        return list(self.class_descriptions.keys())
-
-    @property
-    def num_classes(self) -> int:
-        """Get number of classes"""
-        return len(self.class_descriptions)
-
-    def get_text_prompts(self, template: str = "chest x-ray showing {description}") -> List[str]:
-        """
-        Generate text prompts for each class
-
-        Args:
-            template: Prompt template, use {description} as placeholder
-                     Default changed to chest X-ray specific template
-
-        Returns:
-            List of text prompts
-        """
-        return [template.format(description=desc) for desc in self.class_descriptions.values()]
-
-
-@dataclass
 class Config:
     """Main configuration class"""
     paths: PathConfig = field(default_factory=PathConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     data: DataConfig = field(default_factory=DataConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
-    classes: ClassConfig = field(default_factory=ClassConfig)
 
     @classmethod
     def from_dict(cls, config_dict: dict):
@@ -132,8 +83,7 @@ class Config:
             paths=PathConfig(**config_dict.get('paths', {})),
             model=ModelConfig(**config_dict.get('model', {})),
             data=DataConfig(**config_dict.get('data', {})),
-            training=TrainingConfig(**config_dict.get('training', {})),
-            classes=ClassConfig(**config_dict.get('classes', {}))
+            training=TrainingConfig(**config_dict.get('training', {}))
         )
 
     def update_paths(self, **kwargs):
@@ -150,10 +100,7 @@ class Config:
             'paths': self.paths.__dict__,
             'model': self.model.__dict__,
             'data': self.data.__dict__,
-            'training': self.training.__dict__,
-            'classes': {
-                'class_descriptions': self.classes.class_descriptions
-            }
+            'training': self.training.__dict__
         }
 
     def print_config(self):
@@ -177,9 +124,6 @@ class Config:
         for key, value in self.training.__dict__.items():
             print(f"  {key}: {value}")
 
-        print("\n[Classes]")
-        print(f"  num_classes: {self.classes.num_classes}")
-        print(f"  class_names: {self.classes.class_names}")
         print("=" * 80)
 
 

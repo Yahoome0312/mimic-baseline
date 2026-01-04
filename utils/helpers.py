@@ -141,17 +141,24 @@ def print_device_info():
     print("=" * 80 + "\n")
 
 
-def load_class_names(dataset_name, class_names_dir=None):
+def load_class_config(dataset_name, class_names_dir=None, verbose=True):
     """
-    Load class names from JSON configuration file
+    Load complete class configuration from JSON file
 
     Args:
         dataset_name: Name of the dataset (e.g., 'mimic_cxr', 'chestxray14')
         class_names_dir: Directory containing class name JSON files
                         (default: project_root/class_names/)
+        verbose: Print loading information (default: True)
 
     Returns:
-        List of class names
+        Dictionary with class configuration:
+        {
+            'class_names': List of class names,
+            'num_classes': Number of classes,
+            'task_type': Task type ('multi-label' or 'single-label'),
+            'dataset_name': Dataset name
+        }
 
     Raises:
         FileNotFoundError: If class names file doesn't exist
@@ -184,17 +191,46 @@ def load_class_names(dataset_name, class_names_dir=None):
         raise ValueError(f"'class_names' field not found in {config_file}")
 
     class_names = config['class_names']
+    num_classes = len(class_names)
+    task_type = config.get('task_type', 'multi-label')
+    dataset_display_name = config.get('dataset_name', dataset_name)
 
     # Print info
-    print(f"\n{'='*80}")
-    print(f"Loaded class names for: {config.get('dataset_name', dataset_name)}")
-    print(f"{'='*80}")
-    print(f"Number of classes: {len(class_names)}")
-    print(f"Task type: {config.get('task_type', 'N/A')}")
-    print(f"Classes: {', '.join(class_names)}")
-    print(f"{'='*80}\n")
+    if verbose:
+        print(f"\n{'='*80}")
+        print(f"Loaded class configuration for: {dataset_display_name}")
+        print(f"{'='*80}")
+        print(f"Number of classes: {num_classes}")
+        print(f"Task type: {task_type}")
+        print(f"Classes: {', '.join(class_names)}")
+        print(f"{'='*80}\n")
 
-    return class_names
+    return {
+        'class_names': class_names,
+        'num_classes': num_classes,
+        'task_type': task_type,
+        'dataset_name': dataset_display_name
+    }
+
+
+def load_class_names(dataset_name, class_names_dir=None):
+    """
+    Load class names from JSON configuration file (compatibility wrapper)
+
+    Args:
+        dataset_name: Name of the dataset (e.g., 'mimic_cxr', 'chestxray14')
+        class_names_dir: Directory containing class name JSON files
+                        (default: project_root/class_names/)
+
+    Returns:
+        List of class names
+
+    Raises:
+        FileNotFoundError: If class names file doesn't exist
+        ValueError: If JSON file is invalid
+    """
+    config = load_class_config(dataset_name, class_names_dir, verbose=True)
+    return config['class_names']
 
 
 def list_available_datasets(class_names_dir=None):

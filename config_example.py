@@ -73,22 +73,26 @@ def example_from_dict():
 
 # Example 5: Get text prompts
 def example_text_prompts():
+    from utils import load_class_config
     config = Config()
 
+    # Load class configuration from JSON
+    class_config = load_class_config('mimic_cxr', verbose=False)
+
     # Default prompt template
-    prompts = config.classes.get_text_prompts()
+    prompts = [f"chest x-ray showing {cls.lower().replace('_', ' ')}"
+               for cls in class_config['class_names']]
     print("Default prompts:")
-    for cls, prompt in zip(config.classes.class_names, prompts):
+    for cls, prompt in zip(class_config['class_names'], prompts):
         print(f"  {cls}: {prompt}")
 
     print("\n")
 
     # Custom prompt template
-    custom_prompts = config.classes.get_text_prompts(
-        template="a medical image showing {description}"
-    )
+    custom_prompts = [f"a medical image showing {cls.lower().replace('_', ' ')}"
+                      for cls in class_config['class_names']]
     print("Custom prompts:")
-    for cls, prompt in zip(config.classes.class_names, custom_prompts):
+    for cls, prompt in zip(class_config['class_names'], custom_prompts):
         print(f"  {cls}: {prompt}")
 
     return config

@@ -33,7 +33,6 @@ class ModelEvaluator:
         """
         self.config = config
         self.output_dir = output_dir
-        self.class_names = config.classes.class_names
         os.makedirs(output_dir, exist_ok=True)
 
     def evaluate(self, y_true, y_pred, method_name, save_path=None, y_scores=None, class_names=None):
@@ -55,10 +54,15 @@ class ModelEvaluator:
         print(f"{method_name} - Evaluation Results")
         print("=" * 80)
 
-        # Use custom class names if provided, otherwise use config class names
-        eval_class_names = class_names if class_names is not None else self.class_names
+        # Class names are required
+        if class_names is None:
+            raise ValueError("class_names parameter is required (load from JSON using utils.load_class_names)")
+        eval_class_names = class_names
 
-        is_multilabel = self.config.classes.task_type == 'multi-label'
+        # Infer task type from labels shape (2D = multi-label, 1D = single-label)
+        import numpy as np
+        y_true = np.array(y_true)
+        is_multilabel = len(y_true.shape) > 1 and y_true.shape[1] > 1
 
         if is_multilabel:
             return self._evaluate_multilabel(y_true, y_pred, method_name, save_path, y_scores, eval_class_names)
@@ -99,14 +103,14 @@ class ModelEvaluator:
 
         # Visualize confusion matrix
         if save_path:
-            self._plot_confusion_matrix(cm, method_name, save_path)
+            self._plot_confusion_matrix(cm, method_name, save_path, class_names)
 
         # Calculate and plot per-class recall
-        per_class_recall, per_class_count = self._calculate_per_class_recall(y_true, y_pred)
+        per_class_recall, per_class_count = self._calculate_per_class_recall(y_true, y_pred, class_names)
 
         if save_path:
             self._plot_per_class_recall(per_class_recall, per_class_count, accuracy, balanced_acc,
-                                       method_name, save_path)
+                                       method_name, save_path, class_names)
 
         # Aggregate results
         results = {
@@ -198,7 +202,7 @@ class ModelEvaluator:
         if save_path:
             self._plot_multilabel_metrics(
                 precision_per_class, recall_per_class, f1_per_class,
-                y_true, method_name, save_path
+                y_true, method_name, save_path, class_names
             )
 
         # Aggregate results
@@ -230,15 +234,15 @@ class ModelEvaluator:
 
         return results
 
-    def _plot_multilabel_metrics(self, precision, recall, f1, y_true, method_name, save_path):
+    def _plot_multilabel_metrics(self, precision, recall, f1, y_true, method_name, save_path, class_names):
         """Plot multi-label per-class metrics"""
         fig, axes = plt.subplots(1, 3, figsize=(18, 6))
 
         # Support per class
-        support = [int(y_true[:, i].sum()) for i in range(len(self.class_names))]
+        support = [int(y_true[:, i].sum()) for i in range(len(class_names))]
 
         # Precision
-        axes[0].barh(self.class_names, precision, color='skyblue')
+        axes[0].barh(class_names, precision, color='skyblue')
         axes[0].set_xlabel('Precision')
         axes[0].set_title('Precision per Class')
         axes[0].set_xlim([0, 1])
@@ -246,7 +250,7 @@ class ModelEvaluator:
             axes[0].text(p + 0.02, i, f'{p:.3f} (n={s})', va='center')
 
         # Recall
-        axes[1].barh(self.class_names, recall, color='lightcoral')
+        axes[1].barh(class_names, recall, color='lightcoral')
         axes[1].set_xlabel('Recall')
         axes[1].set_title('Recall per Class')
         axes[1].set_xlim([0, 1])
@@ -254,7 +258,7 @@ class ModelEvaluator:
             axes[1].text(r + 0.02, i, f'{r:.3f} (n={s})', va='center')
 
         # F1-score
-        axes[2].barh(self.class_names, f1, color='lightgreen')
+        axes[2].barh(class_names, f1, color='lightgreen')
         axes[2].set_xlabel('F1-Score')
         axes[2].set_title('F1-Score per Class')
         axes[2].set_xlim([0, 1])
@@ -267,11 +271,11 @@ class ModelEvaluator:
         plt.close()
         print(f"Multi-label metrics plot saved to: {save_path}_metrics.png")
 
-    def _plot_confusion_matrix(self, cm, method_name, save_path):
+    def _plot_confusion_matrix(self, cm, method_name, save_path, class_names):
         """Plot confusion matrix"""
         plt.figure(figsize=(10, 8))
         sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                    xticklabels=self.class_names, yticklabels=self.class_names)
+                    xticklabels=class_names, yticklabels=class_names)
         plt.title(f'{method_name} - Confusion Matrix')
         plt.ylabel('True Label')
         plt.xlabel('Predicted Label')
@@ -280,12 +284,12 @@ class ModelEvaluator:
         plt.close()
         print(f"Confusion matrix saved to: {save_path}_confusion_matrix.png")
 
-    def _calculate_per_class_recall(self, y_true, y_pred):
+    def _calculate_per_class_recall(self, y_true, y_pred, class_names):
         """Calculate per-class recall"""
         per_class_recall = {}
         per_class_count = {}
 
-        for i, cls in enumerate(self.class_names):
+        for i, cls in enumerate(class_names):
             # Find all samples of this class
             cls_indices = [j for j, label in enumerate(y_true) if label == i]
             per_class_count[cls] = len(cls_indices)
@@ -301,10 +305,10 @@ class ModelEvaluator:
         return per_class_recall, per_class_count
 
     def _plot_per_class_recall(self, per_class_recall, per_class_count, accuracy, balanced_acc,
-                               method_name, save_path):
+                               method_name, save_path, class_names):
         """Plot per-class recall"""
         # Sort by sample count (consistent with class distribution plot)
-        class_data = [(cls, per_class_count[cls], per_class_recall[cls]) for cls in self.class_names]
+        class_data = [(cls, per_class_count[cls], per_class_recall[cls]) for cls in class_names]
         class_data_sorted = sorted(class_data, key=lambda x: x[1], reverse=True)
         sorted_names = [item[0] for item in class_data_sorted]
         sorted_counts = [item[1] for item in class_data_sorted]
@@ -420,15 +424,17 @@ class ModelEvaluator:
         axes[1, 0].tick_params(axis='x', rotation=15)
 
         # Per-class F1
-        x = np.arange(len(self.class_names))
+        # Get class names from first result's f1_per_class dictionary
+        class_names = list(all_results[0]['f1_per_class'].keys())
+        x = np.arange(len(class_names))
         width = 0.35
         for i, result in enumerate(all_results):
-            f1_scores = [result['f1_per_class'][cls] for cls in self.class_names]
+            f1_scores = [result['f1_per_class'][cls] for cls in class_names]
             axes[1, 1].bar(x + i*width, f1_scores, width, label=result['method'])
 
         axes[1, 1].set_title('Per-Class F1-Score')
         axes[1, 1].set_xticks(x + width / 2)
-        axes[1, 1].set_xticklabels(self.class_names, rotation=45)
+        axes[1, 1].set_xticklabels(class_names, rotation=45)
         axes[1, 1].legend()
         axes[1, 1].set_ylim([0, 1])
 

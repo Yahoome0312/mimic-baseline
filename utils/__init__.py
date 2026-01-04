@@ -6,6 +6,7 @@ from .helpers import (
     count_parameters,
     get_device,
     print_device_info,
+    load_class_config,
     load_class_names,
     list_available_datasets
 )
@@ -16,6 +17,7 @@ __all__ = [
     'count_parameters',
     'get_device',
     'print_device_info',
+    'load_class_config',
     'load_class_names',
     'list_available_datasets'
 ]

@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import Config
 from datasets import MIMICCXRDataLoader
+from utils import load_class_config
 
 def test_mimic_data_loading():
     """Test MIMIC-CXR data loading"""
@@ -22,12 +23,16 @@ def test_mimic_data_loading():
 
     # Create config
     config = Config()
+
+    # Load MIMIC-CXR class configuration
+    mimic_class_config = load_class_config('mimic_cxr', verbose=False)
+
     print(f"\nConfiguration:")
     print(f"  Data path: {config.paths.base_data_path}")
     print(f"  Output dir: {config.paths.output_dir}")
     print(f"  Batch size: {config.data.batch_size}")
-    print(f"  Task type: {config.classes.task_type}")
-    print(f"  Number of classes: {config.classes.num_classes}")
+    print(f"  Task type: {mimic_class_config['task_type']}")
+    print(f"  Number of classes: {mimic_class_config['num_classes']}")
 
     # Create data loader
     print("\n" + "-" * 80)
@@ -68,7 +73,7 @@ def test_mimic_data_loading():
         print(f"\n" + "-" * 80)
         print("Training set class distribution:")
         train_labels = data_splits['train'][1]
-        for i, class_name in enumerate(config.classes.class_names):
+        for i, class_name in enumerate(mimic_class_config['class_names']):
             positive_count = int(train_labels[:, i].sum())
             percentage = (positive_count / len(train_labels)) * 100
             print(f"  {class_name:<30}: {positive_count:>6} ({percentage:>5.2f}%)")

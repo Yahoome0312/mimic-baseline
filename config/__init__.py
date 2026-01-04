@@ -6,7 +6,6 @@ from .config import (
     ModelConfig,
     DataConfig,
     TrainingConfig,
-    ClassConfig,
     default_config
 )
 
@@ -16,6 +15,5 @@ __all__ = [
     'ModelConfig',
     'DataConfig',
     'TrainingConfig',
-    'ClassConfig',
     'default_config'
 ]
