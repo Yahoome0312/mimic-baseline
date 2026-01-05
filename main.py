@@ -297,7 +297,7 @@ def main():
 
     # Load MIMIC-CXR class configuration for text prompts
     mimic_class_config = load_class_config('mimic_cxr', verbose=False)
-    text_prompts = [f"chest x-ray showing {cls.lower().replace('_', ' ')}"
+    text_prompts = [f"There is {cls.lower().replace('_', ' ')}."
                     for cls in mimic_class_config['class_names']]
 
     if need_mimic:
@@ -340,7 +340,7 @@ def main():
         external_image_paths, external_labels = external_loader.load_test_data()
 
         # Use ChestXray14 class names for text prompts
-        chestxray14_prompts = [f"chest x-ray showing {cls.lower().replace('_', ' ')}"
+        chestxray14_prompts = [f"There is {cls.lower().replace('_', ' ')}."
                                for cls in external_loader.CHESTXRAY14_CLASSES]
 
         test_loader = external_loader.create_dataloader(
@@ -359,7 +359,7 @@ def main():
         external_image_paths, external_labels = external_loader.load_test_data()
 
         # Use ChestXDet10 class names for text prompts
-        chestxdet10_prompts = [f"chest x-ray showing {cls.lower().replace('_', ' ')}"
+        chestxdet10_prompts = [f"There is {cls.lower().replace('_', ' ')}."
                                for cls in external_loader.CHESTXDET10_CLASSES]
 
         test_loader = external_loader.create_dataloader(
@@ -369,16 +369,16 @@ def main():
         test_dataset_name = "ChestXDet10"
     elif args.test_chexpert:
         print("\n" + "=" * 80)
-        print("Using CheXpert VALIDATION SET")
+        print("Using CheXpert TEST SET")
         print("=" * 80)
 
-        # Load CheXpert validation data
+        # Load CheXpert test data
         external_data_path = args.chexpert_path if args.chexpert_path else r"D:\Data\CheXpert\CheXpert-v1.0-small"
         external_loader = CheXpertDataLoader(config, data_path=external_data_path)
-        external_image_paths, external_labels = external_loader.load_valid_data()
+        external_image_paths, external_labels = external_loader.load_test_data()
 
         # Use CheXpert class names for text prompts
-        chexpert_prompts = [f"chest x-ray showing {cls.lower().replace('_', ' ')}"
+        chexpert_prompts = [f"There is {cls.lower().replace('_', ' ')}."
                            for cls in external_loader.CHEXPERT_CLASSES]
 
         test_loader = external_loader.create_dataloader(

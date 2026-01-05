@@ -56,7 +56,7 @@ class ZeroShotCLIPInference:
             raise ValueError("class_names parameter is required (load from JSON using utils.load_class_names)")
 
         # Display text prompts
-        text_prompts = [f"chest x-ray showing {cls.lower().replace('_', ' ')}" for cls in class_names]
+        text_prompts = [f"There is {cls.lower().replace('_', ' ')}." for cls in class_names]
         print("\nText prompts used:")
         for i, (cls, prompt) in enumerate(zip(class_names, text_prompts)):
             print(f"  {cls}: {prompt}")

@@ -43,7 +43,7 @@ def test_mimic_data_loading():
     print("\n" + "-" * 80)
     print("Loading MIMIC-CXR data (this may take a while)...")
     try:
-        image_paths, labels, split_info = data_loader.load_data(
+        image_paths, labels, reports, split_info = data_loader.load_data(
             use_provided_split=config.data.use_provided_split,
             label_policy=config.data.label_policy
         )
@@ -51,6 +51,7 @@ def test_mimic_data_loading():
         print(f"\n[OK] Data loaded successfully!")
         print(f"  Total images: {len(image_paths)}")
         print(f"  Label shape: {labels.shape}")
+        print(f"  Reports loaded: {len(reports)}")
         print(f"  Split info available: {split_info is not None}")
 
         # Check first few images

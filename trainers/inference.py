@@ -36,7 +36,7 @@ def clip_inference(clip_model, test_loader, class_names, tokenizer, config, thre
     clip_model.eval()
 
     # Generate text prompts from class names
-    text_prompts = [f"chest x-ray showing {cls.lower().replace('_', ' ')}" for cls in class_names]
+    text_prompts = [f"There is {cls.lower().replace('_', ' ')}." for cls in class_names]
 
     print(f"\n[Inference] Using {len(class_names)} classes")
     print(f"Threshold: {threshold}")

@@ -85,32 +85,32 @@ class CheXpertDataLoader:
         self.base_path = data_path if data_path else r"D:\Data\CheXpert\CheXpert-v1.0-small"
         self.num_classes = len(self.CHEXPERT_CLASSES)
 
-    def load_valid_data(self):
+    def load_test_data(self):
         """
-        Load CheXpert validation set
+        Load CheXpert test set
 
         Returns:
             image_paths: List of image paths
             labels: Array of multi-label annotations
         """
         print("\n" + "=" * 80)
-        print("Loading CheXpert Validation Dataset")
+        print("Loading CheXpert Test Dataset")
         print("=" * 80)
 
         # Load metadata
-        metadata_path = os.path.join(self.base_path, 'valid.csv')
+        metadata_path = os.path.join(self.base_path, 'test_labels.csv')
 
         print(f"Loading metadata from: {metadata_path}")
         metadata = pd.read_csv(metadata_path)
 
-        print(f"\nValidation images loaded: {len(metadata)}")
+        print(f"\nTest images loaded: {len(metadata)}")
 
         # Build image paths (prepend base_path to relative paths)
         image_paths = []
         for rel_path in metadata['Path']:
-            # Path in CSV is like: CheXpert-v1.0-small/valid/patient64541/study1/view1_frontal.jpg
-            # We need: D:\Data\CheXpert\CheXpert-v1.0-small\valid\patient64541\study1\view1_frontal.jpg
-            full_path = os.path.join(os.path.dirname(self.base_path), rel_path)
+            # Path in CSV is like: test/patient64741/study1/view1_frontal.jpg
+            # We need: D:\Data\CheXpert\CheXpert-v1.0-small\test\patient64741\study1\view1_frontal.jpg
+            full_path = os.path.join(self.base_path, rel_path)
             full_path = full_path.replace('/', '\\')  # Windows path fix
             image_paths.append(full_path)
 
@@ -179,12 +179,12 @@ class CheXpertDataLoader:
         dataloader = DataLoader(
             dataset,
             batch_size=self.config.data.batch_size,
-            shuffle=False,  # Don't shuffle validation set
+            shuffle=False,  # Don't shuffle test set
             num_workers=self.config.data.num_workers,
             pin_memory=True
         )
 
-        print(f"\nCreated CheXpert validation dataloader: {len(dataset)} samples, "
+        print(f"\nCreated CheXpert test dataloader: {len(dataset)} samples, "
               f"{len(dataloader)} batches")
 
         return dataloader
@@ -192,7 +192,7 @@ class CheXpertDataLoader:
     def _print_label_statistics(self, labels):
         """Print label statistics"""
         print("\n" + "-" * 80)
-        print("CheXpert Validation Set Label Statistics")
+        print("CheXpert Test Set Label Statistics")
         print("-" * 80)
 
         total_samples = len(labels)
@@ -222,9 +222,9 @@ if __name__ == "__main__":
     config = Config()
 
     loader = CheXpertDataLoader(config)
-    image_paths, labels = loader.load_valid_data()
+    image_paths, labels = loader.load_test_data()
 
-    print(f"\nLoaded {len(image_paths)} validation images")
+    print(f"\nLoaded {len(image_paths)} test images")
     print(f"Label shape: {labels.shape}")
 
     # Check if images exist
@@ -233,4 +233,4 @@ if __name__ == "__main__":
         exists = "OK" if os.path.exists(image_paths[i]) else "MISSING"
         print(f"  [{exists}] {image_paths[i]}")
 
-    print("\nCheXpert validation set loaded successfully!")
+    print("\nCheXpert test set loaded successfully!")

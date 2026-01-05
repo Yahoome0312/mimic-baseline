@@ -214,6 +214,9 @@ class MIMICCXRDataLoader:
         print("\nLoading reports (Findings + Impression)...")
         image_paths = []
         reports = []  # NEW: list to store report text for each image
+        valid_labels = []  # Store labels for images that exist
+        valid_split_info = []  # Store split info for images that exist
+        skipped_count = 0  # Count of missing images
 
         for idx, row in data.iterrows():
             subject_id = str(row['subject_id'])
@@ -232,22 +235,42 @@ class MIMICCXRDataLoader:
                 s_study,
                 f"{dicom_id}.jpg"
             )
+
+            # Check if image exists, skip if not
+            if not os.path.exists(img_path):
+                skipped_count += 1
+                continue
+
             image_paths.append(img_path)
 
             # Load report for this study (multiple images may share the same report)
             report_text = self._load_report_for_study(subject_id, study_id)
             reports.append(report_text)
 
+            # Store label for this image
+            valid_labels.append(row[self.CHEXPERT_CLASSES].values)
+
+            # Store split info if available
+            if use_provided_split:
+                valid_split_info.append(row['split'])
+
             # Progress indicator
-            if (idx + 1) % 50000 == 0:
-                print(f"  Loaded {idx + 1}/{len(data)} images and reports...")
+            if (idx + 1) % 1000 == 0:
+                print(f"  Processed {idx + 1}/{len(data)} records ({len(image_paths)} valid, {skipped_count} missing)...")
+
+        # Print summary
+        print(f"\nDataset loading summary:")
+        print(f"  Total records in CSV: {len(data)}")
+        print(f"  Valid images found: {len(image_paths)}")
+        print(f"  Missing images skipped: {skipped_count}")
+        print(f"  Success rate: {100*len(image_paths)/len(data):.2f}%")
 
         # Count how many reports were successfully loaded
         reports_loaded = sum(1 for r in reports if r and r != "")
         print(f"\nSuccessfully loaded {reports_loaded}/{len(reports)} reports ({100*reports_loaded/len(reports):.1f}%)")
 
-        # Process labels
-        labels = data[self.CHEXPERT_CLASSES].values
+        # Process labels (convert from list to numpy array)
+        labels = np.array(valid_labels, dtype=np.float32)
 
         # Handle NaN and uncertain labels
         print(f"\nProcessing labels with policy: '{label_policy}'")
@@ -271,7 +294,7 @@ class MIMICCXRDataLoader:
         self._plot_class_distribution(labels)
 
         if use_provided_split:
-            split_info = data['split'].values
+            split_info = np.array(valid_split_info)
             return image_paths, labels, reports, split_info
         else:
             return image_paths, labels, reports, None
