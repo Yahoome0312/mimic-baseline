@@ -69,24 +69,6 @@ class MIMICCXRDataset(Dataset):
 class MIMICCXRDataLoader:
     """MIMIC-CXR data loader and preprocessor"""
 
-    # 14 CheXpert classes
-    CHEXPERT_CLASSES = [
-        'Atelectasis',
-        'Cardiomegaly',
-        'Consolidation',
-        'Edema',
-        'Enlarged Cardiomediastinum',
-        'Fracture',
-        'Lung Lesion',
-        'Lung Opacity',
-        'No Finding',
-        'Pleural Effusion',
-        'Pleural Other',
-        'Pneumonia',
-        'Pneumothorax',
-        'Support Devices'
-    ]
-
     def __init__(self, config):
         """
         Args:
@@ -96,7 +78,11 @@ class MIMICCXRDataLoader:
         self.base_path = config.paths.base_data_path
         self.image_dir = os.path.join(self.base_path, 'MIMIC-CXR-JPG', 'files')
         self.reports_dir = os.path.join(self.base_path, 'reports', 'files')  # NEW: reports directory
-        self.num_classes = len(self.CHEXPERT_CLASSES)
+
+        # Load class names from JSON configuration
+        from utils import load_class_names
+        self.class_names = load_class_names('mimic_cxr')
+        self.num_classes = len(self.class_names)
 
     def _extract_findings_impression(self, report_text):
         """
@@ -248,7 +234,7 @@ class MIMICCXRDataLoader:
             reports.append(report_text)
 
             # Store label for this image
-            valid_labels.append(row[self.CHEXPERT_CLASSES].values)
+            valid_labels.append(row[self.class_names].values)
 
             # Store split info if available
             if use_provided_split:
@@ -419,7 +405,7 @@ class MIMICCXRDataLoader:
 
         print(f"{'Class':<30} {'Positive':<10} {'Ratio':<10}")
         print("-" * 80)
-        for i, class_name in enumerate(self.CHEXPERT_CLASSES):
+        for i, class_name in enumerate(self.class_names):
             print(f"{class_name:<30} {int(positive_counts[i]):<10} {positive_ratios[i]:>6.2f}%")
 
         # Labels per image statistics
@@ -439,17 +425,17 @@ class MIMICCXRDataLoader:
         positive_counts = labels.sum(axis=0)
 
         plt.figure(figsize=(14, 6))
-        bars = plt.bar(range(len(self.CHEXPERT_CLASSES)), positive_counts)
+        bars = plt.bar(range(len(self.class_names)), positive_counts)
 
         # Color bars
-        colors = plt.cm.viridis(np.linspace(0, 1, len(self.CHEXPERT_CLASSES)))
+        colors = plt.cm.viridis(np.linspace(0, 1, len(self.class_names)))
         for bar, color in zip(bars, colors):
             bar.set_color(color)
 
         plt.xlabel('Class', fontsize=12)
         plt.ylabel('Number of Positive Samples', fontsize=12)
         plt.title('MIMIC-CXR Class Distribution', fontsize=14, fontweight='bold')
-        plt.xticks(range(len(self.CHEXPERT_CLASSES)), self.CHEXPERT_CLASSES,
+        plt.xticks(range(len(self.class_names)), self.class_names,
                    rotation=45, ha='right')
 
         # Add value labels on bars

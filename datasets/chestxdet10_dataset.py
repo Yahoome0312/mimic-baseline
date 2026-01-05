@@ -57,20 +57,6 @@ class ChestXDet10Dataset(Dataset):
 class ChestXDet10DataLoader:
     """ChestXDet10 data loader for external testing"""
 
-    # 10 ChestX-Det10 classes
-    CHESTXDET10_CLASSES = [
-        'Atelectasis',
-        'Calcification',
-        'Consolidation',
-        'Effusion',
-        'Emphysema',
-        'Fibrosis',
-        'Fracture',
-        'Mass',
-        'Nodule',
-        'Pneumothorax'
-    ]
-
     def __init__(self, config, data_path=None):
         """
         Args:
@@ -81,7 +67,11 @@ class ChestXDet10DataLoader:
         self.base_path = data_path if data_path else r"D:\Data\ChestXDet10"
         self.annotation_dir = self._resolve_annotation_dir(self.base_path)
         self.test_image_dir = self._resolve_test_image_dir(self.base_path)
-        self.num_classes = len(self.CHESTXDET10_CLASSES)
+
+        # Load class names from JSON configuration
+        from utils import load_class_names
+        self.class_names = load_class_names('chestxdet10')
+        self.num_classes = len(self.class_names)
 
     def _resolve_annotation_dir(self, base_path):
         """Resolve the annotation directory containing train.json/test.json"""
@@ -154,7 +144,7 @@ class ChestXDet10DataLoader:
             labels: Array of shape (N, num_classes) with binary labels
         """
         labels = np.zeros((len(annotations), self.num_classes), dtype=np.float32)
-        class_to_idx = {name: i for i, name in enumerate(self.CHESTXDET10_CLASSES)}
+        class_to_idx = {name: i for i, name in enumerate(self.class_names)}
 
         for i, entry in enumerate(annotations):
             for sym in entry.get('syms', []):
@@ -211,7 +201,7 @@ class ChestXDet10DataLoader:
 
         print(f"{'Class':<30} {'Positive':<10} {'Ratio':<10}")
         print("-" * 80)
-        for i, class_name in enumerate(self.CHESTXDET10_CLASSES):
+        for i, class_name in enumerate(self.class_names):
             print(f"{class_name:<30} {int(positive_counts[i]):<10} {positive_ratios[i]:>6.2f}%")
 
         # Labels per image statistics

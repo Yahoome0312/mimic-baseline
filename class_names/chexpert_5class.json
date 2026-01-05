@@ -1,0 +1,13 @@
+{
+  "dataset_name": "CheXpert-5class",
+  "num_classes": 5,
+  "task_type": "multi-label",
+  "class_names": [
+    "Atelectasis",
+    "Cardiomegaly",
+    "Consolidation",
+    "Edema",
+    "Pleural Effusion"
+  ],
+  "description": "5 pathology classes used in CheXpert official evaluation (500 patients test set)"
+}

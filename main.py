@@ -341,7 +341,7 @@ def main():
 
         # Use ChestXray14 class names for text prompts
         chestxray14_prompts = [f"There is {cls.lower().replace('_', ' ')}."
-                               for cls in external_loader.CHESTXRAY14_CLASSES]
+                               for cls in external_loader.class_names]
 
         test_loader = external_loader.create_dataloader(
             external_image_paths, external_labels,
@@ -360,7 +360,7 @@ def main():
 
         # Use ChestXDet10 class names for text prompts
         chestxdet10_prompts = [f"There is {cls.lower().replace('_', ' ')}."
-                               for cls in external_loader.CHESTXDET10_CLASSES]
+                               for cls in external_loader.class_names]
 
         test_loader = external_loader.create_dataloader(
             external_image_paths, external_labels,
@@ -377,9 +377,9 @@ def main():
         external_loader = CheXpertDataLoader(config, data_path=external_data_path)
         external_image_paths, external_labels = external_loader.load_test_data()
 
-        # Use CheXpert class names for text prompts
+        # Use CheXpert 5-class names for text prompts
         chexpert_prompts = [f"There is {cls.lower().replace('_', ' ')}."
-                           for cls in external_loader.CHEXPERT_CLASSES]
+                           for cls in external_loader.class_names]
 
         test_loader = external_loader.create_dataloader(
             external_image_paths, external_labels,
@@ -404,8 +404,8 @@ def main():
         # Load ChestXDet10 class names from config file
         eval_class_names = load_class_names('chestxdet10')
     elif args.test_chexpert:
-        # Load CheXpert class names from config file
-        eval_class_names = load_class_names('chexpert')
+        # Load CheXpert 5-class names from config file
+        eval_class_names = load_class_names('chexpert_5class')
     else:
         # Load MIMIC-CXR class names from config file
         eval_class_names = load_class_names('mimic_cxr')

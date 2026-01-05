@@ -57,24 +57,6 @@ class ChestXray14Dataset(Dataset):
 class ChestXray14DataLoader:
     """ChestXray14 data loader for external testing"""
 
-    # 14 ChestXray14 classes (same as CheXpert for compatibility)
-    CHESTXRAY14_CLASSES = [
-        'Atelectasis',
-        'Cardiomegaly',
-        'Consolidation',
-        'Edema',
-        'Effusion',  # Note: ChestXray14 uses "Effusion" instead of "Pleural Effusion"
-        'Emphysema',
-        'Fibrosis',
-        'Hernia',
-        'Infiltration',
-        'Mass',
-        'Nodule',
-        'Pleural_Thickening',
-        'Pneumonia',
-        'Pneumothorax'
-    ]
-
     def __init__(self, config, data_path=None):
         """
         Args:
@@ -84,7 +66,11 @@ class ChestXray14DataLoader:
         self.config = config
         self.base_path = data_path if data_path else r"D:\Data\ChestXray14\CXR8"
         self.image_dir = os.path.join(self.base_path, 'images', 'images')
-        self.num_classes = len(self.CHESTXRAY14_CLASSES)
+
+        # Load class names from JSON configuration
+        from utils import load_class_names
+        self.class_names = load_class_names('chestxray14')
+        self.num_classes = len(self.class_names)
 
     def load_test_data(self):
         """
@@ -150,8 +136,8 @@ class ChestXray14DataLoader:
 
             for finding in finding_list:
                 finding = finding.strip()
-                if finding in self.CHESTXRAY14_CLASSES:
-                    class_idx = self.CHESTXRAY14_CLASSES.index(finding)
+                if finding in self.class_names:
+                    class_idx = self.class_names.index(finding)
                     labels[i, class_idx] = 1.0
 
         return labels
@@ -203,7 +189,7 @@ class ChestXray14DataLoader:
 
         print(f"{'Class':<30} {'Positive':<10} {'Ratio':<10}")
         print("-" * 80)
-        for i, class_name in enumerate(self.CHESTXRAY14_CLASSES):
+        for i, class_name in enumerate(self.class_names):
             print(f"{class_name:<30} {int(positive_counts[i]):<10} {positive_ratios[i]:>6.2f}%")
 
         # Labels per image statistics

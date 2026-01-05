@@ -57,24 +57,6 @@ class CheXpertDataset(Dataset):
 class CheXpertDataLoader:
     """CheXpert data loader for external testing"""
 
-    # 14 CheXpert classes (same as MIMIC-CXR)
-    CHEXPERT_CLASSES = [
-        'Atelectasis',
-        'Cardiomegaly',
-        'Consolidation',
-        'Edema',
-        'Enlarged Cardiomediastinum',
-        'Fracture',
-        'Lung Lesion',
-        'Lung Opacity',
-        'No Finding',
-        'Pleural Effusion',
-        'Pleural Other',
-        'Pneumonia',
-        'Pneumothorax',
-        'Support Devices'
-    ]
-
     def __init__(self, config, data_path=None):
         """
         Args:
@@ -82,8 +64,12 @@ class CheXpertDataLoader:
             data_path: Path to CheXpert dataset (overrides config)
         """
         self.config = config
-        self.base_path = data_path if data_path else r"D:\Data\CheXpert\CheXpert-v1.0-small"
-        self.num_classes = len(self.CHEXPERT_CLASSES)
+        self.base_path = data_path if data_path else r"D:\\Data\\CheXpert\\CheXpert-v1.0-small"
+
+        # Load class names from JSON configuration
+        from utils import load_class_names
+        self.class_names = load_class_names('chexpert_5class')
+        self.num_classes = len(self.class_names)
 
     def load_test_data(self):
         """
@@ -144,7 +130,7 @@ class CheXpertDataLoader:
         """
         labels = np.zeros((len(metadata), self.num_classes), dtype=np.float32)
 
-        for i, class_name in enumerate(self.CHEXPERT_CLASSES):
+        for i, class_name in enumerate(self.class_names):
             if class_name in metadata.columns:
                 # Get label column
                 label_col = metadata[class_name].values
@@ -201,7 +187,7 @@ class CheXpertDataLoader:
 
         print(f"{'Class':<35} {'Positive':<10} {'Ratio':<10}")
         print("-" * 80)
-        for i, class_name in enumerate(self.CHEXPERT_CLASSES):
+        for i, class_name in enumerate(self.class_names):
             print(f"{class_name:<35} {int(positive_counts[i]):<10} {positive_ratios[i]:>6.2f}%")
 
         # Labels per image statistics
