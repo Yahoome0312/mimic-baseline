@@ -50,7 +50,7 @@ mimic-baseline/
 │
 ├── models/                          # Model module
 │   ├── __init__.py
-│   └── clip_model.py               # CLIP model, loss functions
+│   └── clip_model.py               # CLIP model, loss
 │
 ├── trainers/                        # Training module
 │   ├── __init__.py
@@ -209,10 +209,6 @@ python main.py --method finetune \
 - `--lr`: Learning rate for all parameters (default: 1e-5)
 - `--weight_decay`: Weight decay (default: 0.01)
 - `--patience`: Early stopping patience (default: 10)
-
-### Loss Function (for single-label datasets)
-- `--loss_type`: Loss type (`standard`, `weighted`, `focal`)
-- `--focal_gamma`: Focal loss gamma (default: 2.0)
 
 ### Other
 - `--seed`: Random seed (default: 42)

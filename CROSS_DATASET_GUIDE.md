@@ -201,18 +201,6 @@ python main.py --method finetune --test_chestxray14
 python main.py --method zeroshot --test_chestxray14
 ```
 
-### 实验 4: 损失函数对比
-```bash
-# 标准损失
-python main.py --method finetune --test_chestxray14 --loss_type standard
-
-# 加权损失
-python main.py --method finetune --test_chestxray14 --loss_type weighted
-
-# Focal 损失
-python main.py --method finetune --test_chestxray14 --loss_type focal --focal_gamma 2.0
-```
-
 ---
 
 ## 预期结果分析

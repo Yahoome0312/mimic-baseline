@@ -60,12 +60,6 @@ class TrainingConfig:
     use_scheduler: bool = True
     scheduler_type: str = "cosine"  # cosine, step, or none
 
-    # Loss function configuration
-    loss_type: str = "standard"  # standard, weighted, focal
-    use_class_weights: bool = False
-    class_weight_method: str = "inverse"  # inverse, sqrt_inverse, effective
-    focal_gamma: float = 2.0  # focal loss focusing parameter (only for focal loss)
-    focal_alpha: bool = True  # whether to use class weights with focal loss
 
 
 @dataclass

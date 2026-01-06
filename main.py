@@ -76,18 +76,6 @@ def parse_args():
     parser.add_argument('--patience', type=int, default=None,
                        help='Early stopping patience')
 
-    # Loss function arguments
-    parser.add_argument('--loss_type', type=str, default=None,
-                       choices=['standard', 'weighted', 'focal'],
-                       help='Loss function type: standard, weighted, or focal')
-    parser.add_argument('--class_weight_method', type=str, default=None,
-                       choices=['inverse', 'sqrt_inverse', 'effective'],
-                       help='Method for computing class weights')
-    parser.add_argument('--focal_gamma', type=float, default=None,
-                       help='Focal loss gamma parameter (focus on hard examples)')
-    parser.add_argument('--focal_alpha', action='store_true',
-                       help='Use class weights with focal loss')
-
     # ChestXray14 test set arguments
     parser.add_argument('--test_chestxray14', action='store_true',
                        help='Use ChestXray14 dataset for testing')
@@ -155,16 +143,6 @@ def update_config_from_args(config, args):
     if args.patience:
         config.training.early_stopping_patience = args.patience
 
-    # Update loss function config
-    if args.loss_type:
-        config.training.loss_type = args.loss_type
-    if args.class_weight_method:
-        config.training.class_weight_method = args.class_weight_method
-    if args.focal_gamma:
-        config.training.focal_gamma = args.focal_gamma
-    if args.focal_alpha:
-        config.training.focal_alpha = True
-
     return config
 
 
@@ -197,7 +175,7 @@ def run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader, experim
     return results
 
 
-def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_loader, test_loader, train_labels=None, experiment_name=None, skip_test=False, class_names=None):
+def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_loader, test_loader, experiment_name=None, skip_test=False, class_names=None, task_type='multi-label'):
     """Run full fine-tuning with CLIP loss (supports multi-label)"""
     print("\n" + "=" * 80)
     print("Starting Fine-Tuning with CLIP Loss")
@@ -207,9 +185,10 @@ def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_lo
     num_classes = len(class_names) if class_names is not None else 14  # Default to MIMIC-CXR
     model = CLIPFineTune(clip_model, num_classes)
 
-    # Create trainer (pass train_labels for weighted/focal losses)
+    # Create trainer
     trainer = CLIPTrainer(model, config, config.paths.output_dir,
-                         train_labels=train_labels, experiment_name=experiment_name)
+                         experiment_name=experiment_name,
+                         task_type=task_type)
 
     # Train
     trainer.train(train_loader, val_loader)
@@ -428,16 +407,14 @@ def main():
         if args.method == 'all':
             clip_model, tokenizer, preprocess = model_loader.load_model()
 
-        # Get training labels for weighted/focal loss
-        _, y_train, _ = data_splits['train']
-
         experiment_suffix = f"_on_{test_dataset_name}" if (args.test_chestxray14 or args.test_chestxdet10 or args.test_chexpert) else ""
         exp_name = (args.experiment_name + experiment_suffix) if args.experiment_name else f"finetune{experiment_suffix}"
 
         result2 = run_finetune(config, clip_model, tokenizer, preprocess,
                               train_loader, val_loader, test_loader,
-                              train_labels=y_train, experiment_name=exp_name,
-                              skip_test=args.skip_test, class_names=eval_class_names)
+                              experiment_name=exp_name,
+                              skip_test=args.skip_test, class_names=eval_class_names,
+                              task_type=mimic_class_config['task_type'])
         all_results.append(result2)
 
     # Compare results if multiple methods were run

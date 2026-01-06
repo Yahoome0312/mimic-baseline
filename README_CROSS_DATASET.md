@@ -140,18 +140,6 @@ python main.py --method finetune --test_chestxray14
 python main.py --method zeroshot --test_chestxray14
 ```
 
-### 场景 4: 损失函数对比
-```bash
-# 标准损失
-python main.py --method finetune --test_chestxray14 --loss_type standard
-
-# 加权损失（处理类别不平衡）
-python main.py --method finetune --test_chestxray14 --loss_type weighted
-
-# Focal 损失（关注难例）
-python main.py --method finetune --test_chestxray14 --loss_type focal
-```
-
 ---
 
 ## 📈 预期性能
@@ -258,9 +246,8 @@ python main.py --method finetune --test_chestxray14 \
 
 ```bash
 python main.py --method finetune --test_chestxray14 \
-  --experiment_name "focal_loss_exp1" \
-  --loss_type focal \
-  --focal_gamma 2.5
+  --experiment_name "exp_lr5e6_v1" \
+  --lr 5e-6
 ```
 
 ---
@@ -303,7 +290,7 @@ python main.py --method finetune --test_chestxray14 \
 1. 使用 Domain Adaptation 技术
 2. 增加训练数据多样性
 3. 使用更强的数据增强
-4. 尝试不同的损失函数（weighted/focal）
+4. 调整训练参数（学习率、batch_size）
 
 ### Q3: 能否在 ChestXray14 上训练？
 

@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.metrics import f1_score, roc_auc_score
 
-from models import CLIPLoss, WeightedCLIPLoss, FocalCLIPLoss, CLIPFineTune, compute_class_weights
+from models import CLIPLoss, CLIPFineTune
 from utils import EarlyStopping
 from .inference import clip_inference
 
@@ -97,14 +97,14 @@ class ZeroShotCLIPInference:
 class CLIPTrainer:
     """CLIP fine-tuning trainer"""
 
-    def __init__(self, model, config, output_dir, train_labels=None, experiment_name=None):
+    def __init__(self, model, config, output_dir, experiment_name=None, task_type='multi-label'):
         """
         Args:
             model: CLIPFineTune model
             config: Configuration object
             output_dir: Output directory for saving models and plots
-            train_labels: (optional) 训练集标签，用于计算类别权重
             experiment_name: (optional) 实验名称，用于自定义保存文件名
+            task_type: Task type ('multi-label' or 'single-label'), default: 'multi-label'
         """
         self.model = model
         self.config = config
@@ -115,8 +115,12 @@ class CLIPTrainer:
         # Move model to device
         self.model.to(self.device)
 
+        # Set task type
+        self.is_multilabel = (task_type == 'multi-label')
+        print(f"Task type: {task_type}, is_multilabel={self.is_multilabel}")
+
         # Initialize loss function based on config
-        self.criterion = self._setup_loss_function(train_labels)
+        self.criterion = self._setup_loss_function()
 
         # Setup optimizer
         self._setup_optimizer()
@@ -140,48 +144,18 @@ class CLIPTrainer:
         self.best_val_loss = float('inf')  # Initialize with infinity
         self.best_model_state = None
 
-    def _setup_loss_function(self, train_labels=None):
+
+    def _setup_loss_function(self):
         """Setup loss function based on configuration"""
-        loss_type = self.config.training.loss_type
         temperature = self.config.model.temperature
 
-        print(f"\n{'='*80}")
-        print(f"Setting up loss function: {loss_type}")
-        print(f"{'='*80}")
+        print("\n" + "=" * 80)
+        print("Setting up loss function: standard")
+        print("=" * 80)
 
-        # Compute class weights if needed
-        class_weights = None
-        if (loss_type in ['weighted', 'focal']) and train_labels is not None:
-            class_weights = compute_class_weights(
-                train_labels,
-                method=self.config.training.class_weight_method,
-                device=self.device
-            )
-
-        # Select loss function
-        if loss_type == 'standard':
-            criterion = CLIPLoss(temperature=temperature)
-            print("[OK] Using standard CLIP loss")
-
-        elif loss_type == 'weighted':
-            criterion = WeightedCLIPLoss(
-                class_weights=class_weights,
-                temperature=temperature
-            )
-
-        elif loss_type == 'focal':
-            # Focal loss can optionally use class weights
-            alpha = class_weights if self.config.training.focal_alpha else None
-            criterion = FocalCLIPLoss(
-                alpha=alpha,
-                gamma=self.config.training.focal_gamma,
-                temperature=temperature
-            )
-
-        else:
-            raise ValueError(f"Unknown loss type: {loss_type}")
-
-        print(f"{'='*80}\n")
+        criterion = CLIPLoss(temperature=temperature)
+        print("[OK] Using standard CLIP loss")
+        print("=" * 80 + "\n")
         return criterion
 
     def _setup_optimizer(self):
@@ -218,7 +192,7 @@ class CLIPTrainer:
         """Train one epoch"""
         self.model.train()
         total_loss = 0
-        is_multilabel = True  # MIMIC-CXR and chest X-ray datasets are multi-label
+        is_multilabel = self.is_multilabel  # Dynamically set from dataset config
 
         # For multi-label accuracy tracking
         if is_multilabel:
@@ -243,18 +217,7 @@ class CLIPTrainer:
                 # Multi-label classification
                 if texts is not None:
                     # When using reports: Use contrastive loss (image-report pairs)
-                    # Create diagonal labels for contrastive learning
-                    batch_size = images.size(0)
-                    contrastive_labels = torch.arange(batch_size, device=self.device)
-
-                    # Compute similarity matrix
-                    logits_per_image = image_features @ text_features.T / 0.07  # temperature
-                    logits_per_text = text_features @ image_features.T / 0.07
-
-                    # Contrastive loss
-                    loss_i2t = nn.CrossEntropyLoss()(logits_per_image, contrastive_labels)
-                    loss_t2i = nn.CrossEntropyLoss()(logits_per_text, contrastive_labels)
-                    loss = (loss_i2t + loss_t2i) / 2
+                    loss = self.criterion(image_features, text_features, labels)
 
                     # For tracking: use image features to predict labels (zero-shot style)
                     with torch.no_grad():
@@ -330,17 +293,7 @@ class CLIPTrainer:
                 image_features, text_features = self.model(images, texts)
 
                 # Compute contrastive loss (same as training)
-                batch_size = images.size(0)
-                contrastive_labels = torch.arange(batch_size, device=self.device)
-
-                # Similarity matrix
-                logits_per_image = image_features @ text_features.T / 0.07
-                logits_per_text = text_features @ image_features.T / 0.07
-
-                # Contrastive loss
-                loss_i2t = nn.CrossEntropyLoss()(logits_per_image, contrastive_labels)
-                loss_t2i = nn.CrossEntropyLoss()(logits_per_text, contrastive_labels)
-                loss = (loss_i2t + loss_t2i) / 2
+                loss = self.criterion(image_features, text_features, labels)
 
                 total_loss += loss.item()
 
