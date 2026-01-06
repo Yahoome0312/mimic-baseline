@@ -9,5 +9,10 @@
     "Edema",
     "Pleural Effusion"
   ],
-  "description": "5 pathology classes used in CheXpert official evaluation (500 patients test set)"
+  "description": "5 pathology classes used in CheXpert official evaluation (500 patients test set)",
+  "prompt_mode": "single",
+  "prompt_templates": {
+    "positive": "There is {class}.",
+    "negative": "There is no {class}."
+  }
 }

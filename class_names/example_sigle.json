@@ -1,0 +1,20 @@
+{
+  "dataset_name": "CheXpert",
+  "num_classes": 14,
+  "task_type": "multi-label",
+  "class_names": [
+    "Atelectasis",
+    "Cardiomegaly",
+    "Support Devices"
+  ],
+  "description": "14 pathology classes from Stanford CheXpert dataset (same as MIMIC-CXR)",
+  "prompt_mode": "single", 
+  "prompt_templates": {
+    "default": "There is {class}."  
+  },
+  "prompt_overrides": {
+    "No Finding": {
+      "default": "This is a normal case with no finding."
+    }
+  }
+}

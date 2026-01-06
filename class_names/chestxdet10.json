@@ -14,5 +14,10 @@
     "Nodule",
     "Pneumothorax"
   ],
-  "description": "10 pathology classes from ChestX-Det10 dataset"
+  "description": "10 pathology classes from ChestX-Det10 dataset",
+  "prompt_mode": "binary",
+  "prompt_templates": {
+    "positive": "There is {class}.",
+    "negative": "There is no {class}."
+  }
 }

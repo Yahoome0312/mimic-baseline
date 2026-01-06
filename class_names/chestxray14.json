@@ -18,5 +18,10 @@
     "Pneumonia",
     "Pneumothorax"
   ],
-  "description": "14 pathology classes from NIH ChestX-ray14 dataset"
+  "description": "14 pathology classes from NIH ChestX-ray14 dataset",
+  "prompt_mode": "binary",
+  "prompt_templates": {
+    "positive": "There is {class}.",
+    "negative": "There is no {class}."
+  }
 }

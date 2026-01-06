@@ -18,5 +18,16 @@
     "Pneumothorax",
     "Support Devices"
   ],
-  "description": "14 pathology classes from Stanford CheXpert dataset (same as MIMIC-CXR)"
+  "description": "14 pathology classes from Stanford CheXpert dataset (same as MIMIC-CXR)",
+  "prompt_mode": "binary",
+  "prompt_templates": {
+    "positive": "There is {class}.",
+    "negative": "There is no {class}."
+  },
+  "prompt_overrides": {
+    "No Finding": {
+      "positive": "No finding.",
+      "negative": "There is abnormal finding."
+    }
+  }
 }

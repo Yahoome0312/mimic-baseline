@@ -18,5 +18,16 @@
     "Pneumothorax",
     "Support Devices"
   ],
-  "description": "14 CheXpert pathology classes for chest X-ray multi-label classification"
+  "description": "14 CheXpert pathology classes for chest X-ray multi-label classification",
+  "prompt_mode": "binary",
+  "prompt_templates": {
+    "positive": "There is {class}.",
+    "negative": "There is no {class}."
+  },
+  "prompt_overrides": {
+    "No Finding": {
+      "positive": "No finding.",
+      "negative": "There is abnormal finding."
+    }
+  }
 }

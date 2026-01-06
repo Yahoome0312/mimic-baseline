@@ -209,7 +209,10 @@ def load_class_config(dataset_name, class_names_dir=None, verbose=True):
         'class_names': class_names,
         'num_classes': num_classes,
         'task_type': task_type,
-        'dataset_name': dataset_display_name
+        'dataset_name': dataset_display_name,
+        'prompt_mode': config.get('prompt_mode', 'single'),
+        'prompt_templates': config.get('prompt_templates', {}),
+        'prompt_overrides': config.get('prompt_overrides', {})
     }
 
 
@@ -256,3 +259,121 @@ def list_available_datasets(class_names_dir=None):
             datasets.append(filename[:-5])  # Remove .json extension
 
     return sorted(datasets)
+
+
+def generate_text_prompts(class_config, verbose=True):
+    """
+    Generate text prompts based on class configuration
+
+    Supports multiple prompt modes:
+    - 'binary': For binary classification (returns positive and negative prompts)
+    - 'single': For single-label multi-class (returns one prompt per class)
+
+    Args:
+        class_config: Dictionary from load_class_config() containing:
+                     - class_names: List of class names
+                     - prompt_mode: 'binary' or 'single' (default: 'single')
+                     - prompt_templates: Dict with template strings
+                     - prompt_overrides: Dict with per-class custom prompts
+        verbose: Print generated prompts (default: True)
+
+    Returns:
+        - For 'binary' mode: Dict with {'positive': [...], 'negative': [...]}
+        - For 'single' mode: List of prompts [...]
+
+    Example JSON configurations:
+        Binary mode:
+        {
+            "prompt_mode": "binary",
+            "prompt_templates": {
+                "positive": "There is {class}.",
+                "negative": "There is no {class}."
+            },
+            "prompt_overrides": {
+                "No Finding": {
+                    "positive": "No finding.",
+                    "negative": "There is abnormal finding."
+                }
+            }
+        }
+
+        Single mode:
+        {
+            "prompt_mode": "single",
+            "prompt_templates": {
+                "default": "This is {class}."
+            }
+        }
+    """
+    class_names = class_config['class_names']
+    prompt_mode = class_config.get('prompt_mode', 'single')
+    prompt_templates = class_config.get('prompt_templates', {})
+    prompt_overrides = class_config.get('prompt_overrides', {})
+
+    if prompt_mode == 'binary':
+        # Binary classification: generate both positive and negative prompts
+        positive_template = prompt_templates.get('positive', 'There is {class}.')
+        negative_template = prompt_templates.get('negative', 'There is no {class}.')
+
+        positive_prompts = []
+        negative_prompts = []
+
+        for cls in class_names:
+            # Check for class-specific overrides
+            if cls in prompt_overrides:
+                pos_prompt = prompt_overrides[cls].get('positive')
+                neg_prompt = prompt_overrides[cls].get('negative')
+
+                # Use override or fall back to template
+                if pos_prompt is None:
+                    pos_prompt = positive_template.replace('{class}', cls.lower().replace('_', ' '))
+                if neg_prompt is None:
+                    neg_prompt = negative_template.replace('{class}', cls.lower().replace('_', ' '))
+            else:
+                # Use default templates
+                pos_prompt = positive_template.replace('{class}', cls.lower().replace('_', ' '))
+                neg_prompt = negative_template.replace('{class}', cls.lower().replace('_', ' '))
+
+            positive_prompts.append(pos_prompt)
+            negative_prompts.append(neg_prompt)
+
+        if verbose:
+            print("\n" + "=" * 80)
+            print(f"Generated Binary Prompts ({len(class_names)} classes)")
+            print("=" * 80)
+            for i, cls in enumerate(class_names):
+                print(f"  {cls}:")
+                print(f"    Positive: {positive_prompts[i]}")
+                print(f"    Negative: {negative_prompts[i]}")
+            print("=" * 80 + "\n")
+
+        return {
+            'positive': positive_prompts,
+            'negative': negative_prompts
+        }
+
+    else:
+        # Single-label classification: generate one prompt per class
+        default_template = prompt_templates.get('default', 'There is {class}.')
+
+        prompts = []
+        for cls in class_names:
+            # Check for class-specific overrides
+            if cls in prompt_overrides:
+                prompt = prompt_overrides[cls].get('default')
+                if prompt is None:
+                    prompt = default_template.replace('{class}', cls.lower().replace('_', ' '))
+            else:
+                prompt = default_template.replace('{class}', cls.lower().replace('_', ' '))
+
+            prompts.append(prompt)
+
+        if verbose:
+            print("\n" + "=" * 80)
+            print(f"Generated Single Prompts ({len(class_names)} classes)")
+            print("=" * 80)
+            for i, cls in enumerate(class_names):
+                print(f"  {cls}: {prompts[i]}")
+            print("=" * 80 + "\n")
+
+        return prompts

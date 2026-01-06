@@ -31,7 +31,7 @@ class ZeroShotCLIPInference:
         self.config = config
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    def predict(self, test_loader, threshold=0.0, class_names=None):
+    def predict(self, test_loader, threshold=0.0, class_names=None, class_config=None):
         """
         Perform zero-shot prediction
 
@@ -39,7 +39,9 @@ class ZeroShotCLIPInference:
             test_loader: Test data loader
             threshold: Cosine similarity threshold for multi-label classification
                       (range: [-1, 1], higher=more conservative, default: 0.0)
-            class_names: Optional list of class names (overrides config.classes.class_names)
+            class_names: Optional list of class names (for backward compatibility)
+            class_config: Optional class configuration dict (from load_class_config)
+                         If provided, will use generate_text_prompts for proper prompt generation
 
         Returns:
             all_predictions: List of predictions (multi-label: N x num_classes)
@@ -51,15 +53,25 @@ class ZeroShotCLIPInference:
         print("=" * 80)
         print(f"Using cosine similarity threshold: {threshold} (range: [-1, 1], higher=more conservative)")
 
-        # Class names must be provided
-        if class_names is None:
-            raise ValueError("class_names parameter is required (load from JSON using utils.load_class_names)")
+        # Determine class names and prompts
+        if class_config is not None:
+            # Use class_config for full prompt generation
+            from utils import generate_text_prompts
+            class_names = class_config['class_names']
+            text_prompts = generate_text_prompts(class_config, verbose=True)
+            prompt_mode = class_config.get('prompt_mode', 'single')
+        elif class_names is not None:
+            # Legacy mode: generate simple prompts
+            text_prompts = [f"There is {cls.lower().replace('_', ' ')}." for cls in class_names]
+            prompt_mode = 'single'
+            print("\nText prompts used (legacy mode):")
+            for i, (cls, prompt) in enumerate(zip(class_names, text_prompts)):
+                print(f"  {cls}: {prompt}")
+        else:
+            raise ValueError("Either class_config or class_names parameter is required")
 
-        # Display text prompts
-        text_prompts = [f"There is {cls.lower().replace('_', ' ')}." for cls in class_names]
-        print("\nText prompts used:")
-        for i, (cls, prompt) in enumerate(zip(class_names, text_prompts)):
-            print(f"  {cls}: {prompt}")
+        # Get task_type from class_config
+        task_type = class_config.get('task_type', 'multi-label') if class_config is not None else 'multi-label'
 
         # Use universal inference function
         all_predictions, all_labels, all_scores = clip_inference(
@@ -69,7 +81,10 @@ class ZeroShotCLIPInference:
             tokenizer=self.tokenizer,
             config=self.config,
             threshold=threshold,
-            device=self.device
+            device=self.device,
+            text_prompts=text_prompts,
+            prompt_mode=prompt_mode,
+            task_type=task_type
         )
 
         # Print similarity statistics for debugging (using first few scores)
@@ -503,14 +518,16 @@ class CLIPTrainer:
         else:
             print("No best model state found!")
 
-    def predict(self, test_loader, class_names=None, threshold=0.0):
+    def predict(self, test_loader, class_names=None, threshold=0.0, class_config=None):
         """
         Predict on test set
 
         Args:
             test_loader: Test data loader
-            class_names: List of class names for generating text prompts
+            class_names: List of class names (for backward compatibility)
             threshold: Similarity threshold for multi-label classification (default: 0.0)
+            class_config: Optional class configuration dict (from load_class_config)
+                         If provided, will use generate_text_prompts for proper prompt generation
 
         Returns:
             predictions: Array of predictions (N, num_classes)
@@ -520,9 +537,19 @@ class CLIPTrainer:
         self.load_best_model()
         self.model.eval()
 
-        # Class names must be provided
-        if class_names is None:
-            raise ValueError("class_names parameter is required (load from JSON using utils.load_class_names)")
+        # Determine class names and prompts
+        if class_config is not None:
+            # Use class_config for full prompt generation
+            from utils import generate_text_prompts
+            class_names = class_config['class_names']
+            text_prompts = generate_text_prompts(class_config, verbose=True)
+            prompt_mode = class_config.get('prompt_mode', 'single')
+        elif class_names is not None:
+            # Legacy mode: generate simple prompts
+            text_prompts = None  # Let inference function handle it
+            prompt_mode = 'single'
+        else:
+            raise ValueError("Either class_config or class_names parameter is required")
 
         print(f"\n[Classification] Using zero-shot style prediction with {len(class_names)} classes")
         print(f"Threshold: {threshold}")
@@ -532,6 +559,9 @@ class CLIPTrainer:
         model_loader = BiomedCLIPLoader(self.config)
         _, tokenizer, _ = model_loader.load_model()
 
+        # Get task_type from class_config
+        task_type = class_config.get('task_type', 'multi-label') if class_config is not None else 'multi-label'
+
         # Use universal inference function
         all_predictions, all_labels, all_scores = clip_inference(
             clip_model=self.model.clip_model,  # Use wrapped CLIP model
@@ -540,7 +570,10 @@ class CLIPTrainer:
             tokenizer=tokenizer,
             config=self.config,
             threshold=threshold,
-            device=self.device
+            device=self.device,
+            text_prompts=text_prompts,
+            prompt_mode=prompt_mode,
+            task_type=task_type
         )
 
         return all_predictions, all_labels, all_scores
