@@ -8,7 +8,7 @@ import torch
 from tqdm import tqdm
 
 
-def clip_inference(clip_model, test_loader, class_names, tokenizer, config, threshold=0.0, device=None):
+def clip_inference(clip_model, test_loader, class_names, tokenizer, config, threshold=0.0, device=None, text_prompts=None):
     """
     Universal inference function for CLIP models
 
@@ -35,8 +35,9 @@ def clip_inference(clip_model, test_loader, class_names, tokenizer, config, thre
     clip_model.to(device)
     clip_model.eval()
 
-    # Generate text prompts from class names
-    text_prompts = [f"There is {cls.lower().replace('_', ' ')}." for cls in class_names]
+    # Use provided text prompts or generate default
+    if text_prompts is None:
+        text_prompts = [f"There is {cls.lower().replace('_', ' ')}." for cls in class_names]
 
     print(f"\n[Inference] Using {len(class_names)} classes")
     print(f"Threshold: {threshold}")

@@ -146,7 +146,7 @@ def update_config_from_args(config, args):
     return config
 
 
-def run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader, experiment_name=None, threshold=0.0, class_names=None):
+def run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader, experiment_name=None, threshold=0.0, class_names=None, text_prompts=None):
     """Run zero-shot CLIP inference"""
     print("\n" + "=" * 80)
     print("Starting Zero-shot CLIP")
@@ -157,7 +157,7 @@ def run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader, experim
     zeroshot = ZeroShotCLIPInference(clip_model, tokenizer, config)
 
     # Predict (pass class_names to use correct text prompts)
-    all_predictions, all_labels, all_scores = zeroshot.predict(test_loader, threshold=threshold, class_names=class_names)
+    all_predictions, all_labels, all_scores = zeroshot.predict(test_loader, threshold=threshold, class_names=class_names, text_prompts=text_prompts)
 
     # Generate save name
     save_name = experiment_name if experiment_name else "zeroshot"
@@ -175,7 +175,7 @@ def run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader, experim
     return results
 
 
-def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_loader, test_loader, experiment_name=None, skip_test=False, class_names=None, task_type='multi-label'):
+def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_loader, test_loader, experiment_name=None, skip_test=False, class_names=None, task_type='multi-label', text_prompts=None):
     """Run full fine-tuning with CLIP loss (supports multi-label)"""
     print("\n" + "=" * 80)
     print("Starting Fine-Tuning with CLIP Loss")
@@ -213,7 +213,7 @@ def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_lo
         return {'best_val_loss': float(trainer.best_val_loss), 'skipped_test': True}
 
     # Predict on test set using zero-shot style classification
-    test_preds, test_labels, test_scores = trainer.predict(test_loader, class_names=class_names, threshold=0.0)
+    test_preds, test_labels, test_scores = trainer.predict(test_loader, class_names=class_names, threshold=0.0, text_prompts=text_prompts)
 
     # Evaluate
     evaluator = ModelEvaluator(config, config.paths.output_dir)
@@ -357,7 +357,7 @@ def main():
         external_image_paths, external_labels = external_loader.load_test_data()
 
         # Use CheXpert 5-class names for text prompts
-        chexpert_prompts = [f"There is {cls.lower().replace('_', ' ')}."
+        chexpert_prompts = [f"A disease of {cls.lower().replace('_', ' ')}."
                            for cls in external_loader.class_names]
 
         test_loader = external_loader.create_dataloader(
@@ -389,6 +389,16 @@ def main():
         # Load MIMIC-CXR class names from config file
         eval_class_names = load_class_names('mimic_cxr')
 
+    # Automatically select text prompts based on test dataset
+    if args.test_chestxray14:
+        eval_text_prompts = chestxray14_prompts
+    elif args.test_chestxdet10:
+        eval_text_prompts = chestxdet10_prompts
+    elif args.test_chexpert:
+        eval_text_prompts = chexpert_prompts
+    else:
+        eval_text_prompts = text_prompts
+
     # Store all results
     all_results = []
 
@@ -399,7 +409,7 @@ def main():
 
         result1 = run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader,
                               experiment_name=exp_name, threshold=args.zeroshot_threshold,
-                              class_names=eval_class_names)
+                              class_names=eval_class_names, text_prompts=eval_text_prompts)
         all_results.append(result1)
 
     if args.method in ['all', 'finetune']:
@@ -414,7 +424,7 @@ def main():
                               train_loader, val_loader, test_loader,
                               experiment_name=exp_name,
                               skip_test=args.skip_test, class_names=eval_class_names,
-                              task_type=mimic_class_config['task_type'])
+                              task_type=mimic_class_config['task_type'], text_prompts=eval_text_prompts)
         all_results.append(result2)
 
     # Compare results if multiple methods were run

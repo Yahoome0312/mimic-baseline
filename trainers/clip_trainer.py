@@ -3,6 +3,7 @@ CLIP Trainer Module
 """
 
 import os
+import shutil
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -31,7 +32,7 @@ class ZeroShotCLIPInference:
         self.config = config
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    def predict(self, test_loader, threshold=0.0, class_names=None):
+    def predict(self, test_loader, threshold=0.0, class_names=None, text_prompts=None):
         """
         Perform zero-shot prediction
 
@@ -55,8 +56,10 @@ class ZeroShotCLIPInference:
         if class_names is None:
             raise ValueError("class_names parameter is required (load from JSON using utils.load_class_names)")
 
-        # Display text prompts
-        text_prompts = [f"There is {cls.lower().replace('_', ' ')}." for cls in class_names]
+        # Use provided text prompts or generate default
+        if text_prompts is None:
+            text_prompts = [f"There is {cls.lower().replace('_', ' ')}." for cls in class_names]
+
         print("\nText prompts used:")
         for i, (cls, prompt) in enumerate(zip(class_names, text_prompts)):
             print(f"  {cls}: {prompt}")
@@ -69,7 +72,8 @@ class ZeroShotCLIPInference:
             tokenizer=self.tokenizer,
             config=self.config,
             threshold=threshold,
-            device=self.device
+            device=self.device,
+            text_prompts=text_prompts
         )
 
         # Print similarity statistics for debugging (using first few scores)
@@ -111,6 +115,10 @@ class CLIPTrainer:
         self.output_dir = output_dir
         self.experiment_name = experiment_name
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.best_model_path = os.path.join(
+            self.output_dir,
+            f"{self.experiment_name}_best_model.pth" if self.experiment_name else "best_model.pth"
+        )
 
         # Move model to device
         self.model.to(self.device)
@@ -395,7 +403,7 @@ class CLIPTrainer:
             is_best = self.early_stopping(val_loss, epoch+1)
             if is_best:
                 self.best_val_loss = val_loss  # Store best val loss
-                self.best_model_state = self.model.state_dict().copy()
+                torch.save(self.model.state_dict(), self.best_model_path)
                 print(f"[BEST] Model updated! (Val Loss: {val_loss:.4f})")
 
             if self.early_stopping.early_stop:
@@ -438,25 +446,26 @@ class CLIPTrainer:
 
     def save_best_model(self, filename='best_model.pth'):
         """Save best model"""
-        if self.best_model_state is not None:
+        if os.path.exists(self.best_model_path):
             model_path = os.path.join(self.output_dir, filename)
-            torch.save(self.best_model_state, model_path)
+            if os.path.abspath(self.best_model_path) != os.path.abspath(model_path):
+                shutil.copyfile(self.best_model_path, model_path)
             print(f"\nBest model saved to: {model_path}")
             print(f"Model selected based on: Best Validation Loss = {self.best_val_loss:.4f}")
             return model_path
-        else:
-            print("No best model state found!")
-            return None
+
+        print("No best model file found!")
+        return None
 
     def load_best_model(self):
         """Load best model state"""
-        if self.best_model_state is not None:
-            self.model.load_state_dict(self.best_model_state)
+        if os.path.exists(self.best_model_path):
+            self.model.load_state_dict(torch.load(self.best_model_path, map_location=self.device))
             print(f"Loaded best model (Best Val Loss: {self.best_val_loss:.4f})")
         else:
-            print("No best model state found!")
+            print("No best model file found!")
 
-    def predict(self, test_loader, class_names=None, threshold=0.0):
+    def predict(self, test_loader, class_names=None, threshold=0.0, text_prompts=None):
         """
         Predict on test set
 
@@ -493,7 +502,8 @@ class CLIPTrainer:
             tokenizer=tokenizer,
             config=self.config,
             threshold=threshold,
-            device=self.device
+            device=self.device,
+            text_prompts=text_prompts
         )
 
         return all_predictions, all_labels, all_scores
