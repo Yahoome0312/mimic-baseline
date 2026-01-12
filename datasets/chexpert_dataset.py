@@ -155,13 +155,21 @@ class CheXpertDataLoader:
             text_prompts=text_prompts
         )
 
-        dataloader = DataLoader(
-            dataset,
+        workers = self.config.data.num_workers
+        loader_kwargs = dict(
+            dataset=dataset,
             batch_size=self.config.data.batch_size,
             shuffle=False,  # Don't shuffle test set
-            num_workers=self.config.data.num_workers,
+            num_workers=workers,
             pin_memory=True
         )
+        if workers > 0:
+            loader_kwargs.update(
+                persistent_workers=True,
+                prefetch_factor=2
+            )
+
+        dataloader = DataLoader(**loader_kwargs)
 
         print(f"\nCreated CheXpert test dataloader: {len(dataset)} samples, "
               f"{len(dataloader)} batches")

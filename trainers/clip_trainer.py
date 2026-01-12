@@ -304,7 +304,7 @@ class CLIPTrainer:
         all_image_features = []
         all_text_features = []
 
-        with torch.no_grad():
+        with torch.inference_mode():
             for images, texts, labels in tqdm(val_loader, desc="Validation"):
                 images = images.to(self.device)
 

@@ -45,7 +45,7 @@ def clip_inference(clip_model, test_loader, class_names, tokenizer, config, thre
     # Encode class text features
     texts = tokenizer(text_prompts, context_length=config.model.context_length).to(device)
 
-    with torch.no_grad():
+    with torch.inference_mode():
         # Use AMP for inference (faster)
         with torch.amp.autocast('cuda'):
             # Get text features for all classes

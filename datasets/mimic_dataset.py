@@ -497,13 +497,21 @@ class MIMICCXRDataLoader:
             # Use shuffle for train, not for val/test
             shuffle = (split_name == 'train')
 
-            dataloader = DataLoader(
-                dataset,
+            workers = self.config.data.num_workers
+            loader_kwargs = dict(
+                dataset=dataset,
                 batch_size=self.config.data.batch_size,
                 shuffle=shuffle,
-                num_workers=self.config.data.num_workers,
+                num_workers=workers,
                 pin_memory=True  # 加速 CPU→GPU 数据传输
             )
+            if workers > 0:
+                loader_kwargs.update(
+                    persistent_workers=True,
+                    prefetch_factor=2
+                )
+
+            dataloader = DataLoader(**loader_kwargs)
 
             dataloaders[split_name] = dataloader
             print(f"Created {split_name} dataloader: {len(dataset)} samples, "
