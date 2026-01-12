@@ -60,10 +60,6 @@ class ZeroShotCLIPInference:
         if text_prompts is None:
             text_prompts = [f"There is {cls.lower().replace('_', ' ')}." for cls in class_names]
 
-        print("\nText prompts used:")
-        for i, (cls, prompt) in enumerate(zip(class_names, text_prompts)):
-            print(f"  {cls}: {prompt}")
-
         # Use universal inference function
         all_predictions, all_labels, all_scores = clip_inference(
             clip_model=self.model,
@@ -101,19 +97,20 @@ class ZeroShotCLIPInference:
 class CLIPTrainer:
     """CLIP fine-tuning trainer"""
 
-    def __init__(self, model, config, output_dir, experiment_name=None, task_type='multi-label'):
+    def __init__(self, model, config, output_dir, experiment_name=None, tokenizer=None):
         """
         Args:
             model: CLIPFineTune model
             config: Configuration object
             output_dir: Output directory for saving models and plots
             experiment_name: (optional) 实验名称，用于自定义保存文件名
-            task_type: Task type ('multi-label' or 'single-label'), default: 'multi-label'
+            tokenizer: Text tokenizer for report tokenization (optional)
         """
         self.model = model
         self.config = config
         self.output_dir = output_dir
         self.experiment_name = experiment_name
+        self.tokenizer = tokenizer
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.best_model_path = os.path.join(
             self.output_dir,
@@ -123,9 +120,8 @@ class CLIPTrainer:
         # Move model to device
         self.model.to(self.device)
 
-        # Set task type
-        self.is_multilabel = (task_type == 'multi-label')
-        print(f"Task type: {task_type}, is_multilabel={self.is_multilabel}")
+        # All datasets use multi-label classification
+        print("Task type: multi-label")
 
         # Initialize loss function based on config
         self.criterion = self._setup_loss_function()
@@ -143,10 +139,15 @@ class CLIPTrainer:
             verbose=True
         )
 
+        # Setup AMP (Automatic Mixed Precision)
+        self.use_amp = True  # Enable mixed precision training
+        self.scaler = torch.cuda.amp.GradScaler() if self.use_amp else None
+        if self.use_amp:
+            print("✓ AMP (Automatic Mixed Precision) enabled")
+
         # Training history
         self.train_losses = []
         self.val_losses = []
-        self.train_accs = []
         self.val_accs = []
         self.val_f1s = []
         self.best_val_loss = float('inf')  # Initialize with infinity
@@ -181,101 +182,115 @@ class CLIPTrainer:
         )
 
     def _setup_scheduler(self):
-        """Setup learning rate scheduler"""
+        """Setup learning rate scheduler with optional warmup"""
         if self.config.training.use_scheduler:
-            if self.config.training.scheduler_type == 'cosine':
-                self.scheduler = optim.lr_scheduler.CosineAnnealingLR(
-                    self.optimizer, T_max=self.config.training.epochs
+            # Check if warmup is enabled
+            if self.config.training.use_warmup and self.config.training.warmup_epochs > 0:
+                warmup_epochs = self.config.training.warmup_epochs
+                total_epochs = self.config.training.epochs
+
+                # Create warmup scheduler (linear warmup)
+                warmup_scheduler = optim.lr_scheduler.LinearLR(
+                    self.optimizer,
+                    start_factor=self.config.training.warmup_start_factor,
+                    end_factor=self.config.training.warmup_end_factor,
+                    total_iters=warmup_epochs
                 )
-            elif self.config.training.scheduler_type == 'step':
-                self.scheduler = optim.lr_scheduler.StepLR(
-                    self.optimizer, step_size=30, gamma=0.1
+
+                # Create main scheduler
+                if self.config.training.scheduler_type == 'cosine':
+                    main_scheduler = optim.lr_scheduler.CosineAnnealingLR(
+                        self.optimizer, T_max=total_epochs - warmup_epochs
+                    )
+                elif self.config.training.scheduler_type == 'step':
+                    main_scheduler = optim.lr_scheduler.StepLR(
+                        self.optimizer, step_size=30, gamma=0.1
+                    )
+                else:
+                    main_scheduler = optim.lr_scheduler.ConstantLR(
+                        self.optimizer, factor=1.0, total_iters=total_epochs - warmup_epochs
+                    )
+
+                # Combine warmup + main scheduler
+                self.scheduler = optim.lr_scheduler.SequentialLR(
+                    self.optimizer,
+                    schedulers=[warmup_scheduler, main_scheduler],
+                    milestones=[warmup_epochs]
                 )
+                print(f"✓ Learning rate scheduler: {self.config.training.scheduler_type} with {warmup_epochs} epochs warmup")
             else:
-                self.scheduler = None
+                # No warmup, use standard scheduler
+                if self.config.training.scheduler_type == 'cosine':
+                    self.scheduler = optim.lr_scheduler.CosineAnnealingLR(
+                        self.optimizer, T_max=self.config.training.epochs
+                    )
+                elif self.config.training.scheduler_type == 'step':
+                    self.scheduler = optim.lr_scheduler.StepLR(
+                        self.optimizer, step_size=30, gamma=0.1
+                    )
+                else:
+                    self.scheduler = None
+                print(f"✓ Learning rate scheduler: {self.config.training.scheduler_type} (no warmup)")
         else:
             self.scheduler = None
+            print("✓ No learning rate scheduler")
 
     def train_epoch(self, train_loader):
         """Train one epoch"""
         self.model.train()
         total_loss = 0
-        is_multilabel = self.is_multilabel  # Dynamically set from dataset config
-
-        # For multi-label accuracy tracking
-        if is_multilabel:
-            all_preds = []
-            all_labels = []
-
-        correct = 0
-        total = 0
 
         for images, texts, labels in tqdm(train_loader, desc="Training"):
             images, labels = images.to(self.device), labels.to(self.device)
 
-            # Move texts to device if provided
+            # Move pre-tokenized texts to device if provided
             if texts is not None:
                 texts = texts.to(self.device)
 
-            # Forward pass
             self.optimizer.zero_grad()
-            image_features, text_features = self.model(images, texts)
 
-            if is_multilabel:
+            # Mixed precision training
+            if self.use_amp:
+                with torch.amp.autocast('cuda'):
+                    # Forward pass
+                    image_features, text_features = self.model(images, texts)
+
+                    # Multi-label classification
+                    if texts is not None:
+                        # When using reports: Use contrastive loss (image-report pairs)
+                        loss = self.criterion(image_features, text_features, labels)
+                    else:
+                        # Original: compute similarity for all classes
+                        logits = image_features @ text_features.T  # (batch, num_classes)
+
+                        # Use BCE loss for multi-label
+                        bce_loss = nn.BCEWithLogitsLoss()(logits, labels)
+                        loss = bce_loss
+
+                # Backward pass with gradient scaling
+                self.scaler.scale(loss).backward()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+            else:
+                # Standard training (no AMP)
+                image_features, text_features = self.model(images, texts)
+
                 # Multi-label classification
                 if texts is not None:
-                    # When using reports: Use contrastive loss (image-report pairs)
                     loss = self.criterion(image_features, text_features, labels)
-
-                    # For tracking: use image features to predict labels (zero-shot style)
-                    with torch.no_grad():
-                        # We can't compute class predictions without class embeddings
-                        # Just set dummy values for now
-                        preds = torch.zeros_like(labels)
-                        all_preds.append(preds.cpu())
-                        all_labels.append(labels.cpu())
                 else:
-                    # Original: compute similarity for all classes
-                    logits = image_features @ text_features.T  # (batch, num_classes)
-
-                    # Use BCE loss for multi-label
+                    logits = image_features @ text_features.T
                     bce_loss = nn.BCEWithLogitsLoss()(logits, labels)
                     loss = bce_loss
 
-                    # Track predictions for accuracy
-                    with torch.no_grad():
-                        preds = (torch.sigmoid(logits) > 0.5).float()
-                        all_preds.append(preds.cpu())
-                        all_labels.append(labels.cpu())
-            else:
-                # Single-label: original logic
-                batch_text_features = text_features[labels]
-                loss = self.criterion(image_features, batch_text_features, labels)
-
-                # Calculate accuracy
-                with torch.no_grad():
-                    logits = image_features @ text_features.T
-                    _, predicted = logits.max(1)
-                    total += labels.size(0)
-                    correct += predicted.eq(labels).sum().item()
-
-            # Backward pass
-            loss.backward()
-            self.optimizer.step()
+                loss.backward()
+                self.optimizer.step()
 
             total_loss += loss.item()
 
         avg_loss = total_loss / len(train_loader)
 
-        if is_multilabel:
-            # Multi-label accuracy: percentage of correctly predicted labels
-            all_preds = torch.cat(all_preds, dim=0)
-            all_labels = torch.cat(all_labels, dim=0)
-            accuracy = (all_preds == all_labels).float().mean().item() * 100
-        else:
-            accuracy = 100. * correct / total
-
-        return avg_loss, accuracy
+        return avg_loss
 
     def validate(self, val_loader):
         """
@@ -293,21 +308,27 @@ class CLIPTrainer:
             for images, texts, labels in tqdm(val_loader, desc="Validation"):
                 images = images.to(self.device)
 
-                # Move texts to device if provided
+                # Move pre-tokenized texts to device if provided
                 if texts is not None:
                     texts = texts.to(self.device)
 
-                # Extract features (using reports, consistent with training)
-                image_features, text_features = self.model(images, texts)
+                # Use AMP for validation too
+                if self.use_amp:
+                    with torch.amp.autocast('cuda'):
+                        # Extract features (using reports, consistent with training)
+                        image_features, text_features = self.model(images, texts)
 
-                # Compute contrastive loss (same as training)
-                loss = self.criterion(image_features, text_features, labels)
+                        # Compute contrastive loss (same as training)
+                        loss = self.criterion(image_features, text_features, labels)
+                else:
+                    image_features, text_features = self.model(images, texts)
+                    loss = self.criterion(image_features, text_features, labels)
 
                 total_loss += loss.item()
 
-                # Collect features for retrieval evaluation
-                all_image_features.append(image_features.cpu())
-                all_text_features.append(text_features.cpu())
+                # Collect features for retrieval evaluation (keep on GPU for faster computation)
+                all_image_features.append(image_features)
+                all_text_features.append(text_features)
 
         avg_loss = total_loss / len(val_loader)
 
@@ -354,7 +375,7 @@ class CLIPTrainer:
             _, top_k_indices = similarity.topk(k_actual, dim=1)  # (N, k_actual)
 
             # Check if the correct text (diagonal) is in top-k
-            correct_indices = torch.arange(N).unsqueeze(1)  # (N, 1)
+            correct_indices = torch.arange(N, device=similarity.device).unsqueeze(1)  # (N, 1)
             hits = (top_k_indices == correct_indices).any(dim=1).float()
 
             # Recall@K = percentage of correct retrievals
@@ -381,9 +402,8 @@ class CLIPTrainer:
             print(f"\nEpoch {epoch+1}/{self.config.training.epochs}")
 
             # Train
-            train_loss, train_acc = self.train_epoch(train_loader)
+            train_loss = self.train_epoch(train_loader)
             self.train_losses.append(train_loss)
-            self.train_accs.append(train_acc)
 
             # Validate (returns: loss, R@1, R@5, R@10, None, None)
             val_loss, recall_at_1, recall_at_5, recall_at_10, _, _ = self.validate(val_loader)
@@ -395,7 +415,7 @@ class CLIPTrainer:
             if self.scheduler:
                 self.scheduler.step()
 
-            print(f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}%")
+            print(f"Train Loss: {train_loss:.4f}")
             print(f"Val Loss: {val_loss:.4f} | R@1: {recall_at_1:.2f}% | R@5: {recall_at_5:.2f}% | R@10: {recall_at_10:.2f}%")
             print(f"LR: {self.optimizer.param_groups[0]['lr']:.6f}")
 
@@ -426,12 +446,12 @@ class CLIPTrainer:
         plt.title('Training and Validation Loss')
 
         plt.subplot(1, 2, 2)
-        plt.plot(self.train_accs, label='Train Acc')
-        plt.plot(self.val_accs, label='Val Acc')
+        plt.plot(self.val_accs, label='Val R@1')
+        plt.plot(self.val_f1s, label='Val R@5')
         plt.xlabel('Epoch')
-        plt.ylabel('Accuracy (%)')
+        plt.ylabel('Recall (%)')
         plt.legend()
-        plt.title('Training and Validation Accuracy')
+        plt.title('Validation Retrieval Recall')
 
         plt.tight_layout()
 
@@ -489,10 +509,18 @@ class CLIPTrainer:
         print(f"\n[Classification] Using zero-shot style prediction with {len(class_names)} classes")
         print(f"Threshold: {threshold}")
 
-        # Load tokenizer for universal inference function
-        from models import BiomedCLIPLoader
-        model_loader = BiomedCLIPLoader(self.config)
-        _, tokenizer, _ = model_loader.load_model()
+        # Use provided text prompts or generate default
+        if text_prompts is None:
+            text_prompts = [f"There is {cls.lower().replace('_', ' ')}." for cls in class_names]
+
+        # Reuse tokenizer from initialization if available, otherwise load
+        if self.tokenizer is not None:
+            tokenizer = self.tokenizer
+        else:
+            # Load tokenizer only if not already available (e.g., testing without training)
+            from models import BiomedCLIPLoader
+            model_loader = BiomedCLIPLoader(self.config)
+            _, tokenizer, _ = model_loader.load_model()
 
         # Use universal inference function
         all_predictions, all_labels, all_scores = clip_inference(

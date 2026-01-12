@@ -19,22 +19,79 @@ from sklearn.model_selection import train_test_split
 class MIMICCXRDataset(Dataset):
     """MIMIC-CXR Dataset for multi-label classification"""
 
-    def __init__(self, image_paths, labels, transform=None, tokenizer=None, text_prompts=None, reports=None):
+    def __init__(self, image_paths, labels, transform=None, tokenizer=None, text_prompts=None, reports=None, context_length=256, cache_dir=None, split_name='unknown'):
         """
         Args:
             image_paths: List of image file paths
             labels: Array of multi-label annotations (N, num_classes)
             transform: Image transformations
-            tokenizer: Text tokenizer (optional)
-            text_prompts: List of text prompts for each class (optional, used for zero-shot)
+            tokenizer: Text tokenizer (if provided, will pre-tokenize all reports)
+            text_prompts: List of text prompts for each class (unused)
             reports: List of report texts, one per image (optional, used for fine-tuning)
+            context_length: Context length for tokenizer (default: 256)
+            cache_dir: Directory for tokenization cache (optional)
+            split_name: Dataset split name (e.g., 'train', 'val', 'test')
         """
         self.image_paths = image_paths
         self.labels = labels
         self.transform = transform
-        self.tokenizer = tokenizer
-        self.text_prompts = text_prompts
-        self.reports = reports  # NEW: per-image report texts
+
+        # Tokenization with caching
+        if reports is not None and tokenizer is not None:
+            from utils import TokenizationCache
+
+            # Try to use cache if cache_dir is provided
+            if cache_dir is not None:
+                cache_manager = TokenizationCache(cache_dir)
+                cache_path = cache_manager.generate_cache_path(
+                    split_name, context_length, len(reports)
+                )
+
+                # Try to load from cache
+                cached_data = cache_manager.load_cache(cache_path, len(reports))
+
+                if cached_data is not None:
+                    # Cache hit - use cached tokenized reports
+                    self.tokenized_reports = cached_data['tokenized_reports']
+                    self.reports = None
+                else:
+                    # Cache miss - tokenize and save to cache (in batches to avoid memory issues)
+                    print(f"[Dataset] Pre-tokenizing {len(reports)} reports...")
+                    batch_size = 1000
+                    all_tokenized = []
+
+                    from tqdm import tqdm
+                    for i in tqdm(range(0, len(reports), batch_size), desc="Tokenizing batches"):
+                        batch_reports = reports[i:i+batch_size]
+                        batch_tokenized = tokenizer(batch_reports)
+                        all_tokenized.append(batch_tokenized)
+
+                    self.tokenized_reports = torch.cat(all_tokenized, dim=0)
+                    self.reports = None  # Free memory
+                    print(f"[Dataset] Tokenization completed: {self.tokenized_reports.shape}")
+
+                    # Save to cache
+                    cache_manager.save_cache(
+                        self.tokenized_reports, cache_path, context_length
+                    )
+            else:
+                # No cache - direct tokenization in batches
+                print(f"[Dataset] Pre-tokenizing {len(reports)} reports (no cache)...")
+                batch_size = 1000
+                all_tokenized = []
+
+                from tqdm import tqdm
+                for i in tqdm(range(0, len(reports), batch_size), desc="Tokenizing batches"):
+                    batch_reports = reports[i:i+batch_size]
+                    batch_tokenized = tokenizer(batch_reports)
+                    all_tokenized.append(batch_tokenized)
+
+                self.tokenized_reports = torch.cat(all_tokenized, dim=0)
+                self.reports = None
+                print(f"[Dataset] Tokenization completed: {self.tokenized_reports.shape}")
+        else:
+            self.reports = reports
+            self.tokenized_reports = None
 
     def __len__(self):
         return len(self.image_paths)
@@ -43,25 +100,21 @@ class MIMICCXRDataset(Dataset):
         # Load image
         img_path = self.image_paths[idx]
         image = Image.open(img_path).convert('RGB')
-
+        
         if self.transform:
             image = self.transform(image)
 
         # Get labels
         label = torch.tensor(self.labels[idx], dtype=torch.float32)
 
-        # Tokenize text
-        if self.tokenizer:
-            if self.reports is not None:
-                # Use per-image report text (for fine-tuning)
-                text = self.tokenizer([self.reports[idx]])[0]
-            elif self.text_prompts is not None:
-                # Use class prompts (for zero-shot)
-                text = self.tokenizer(self.text_prompts)
-            else:
-                text = None
+        # Return pre-tokenized text if available, otherwise raw text
+        if self.tokenized_reports is not None:
+            text = self.tokenized_reports[idx]
+        elif self.reports is not None:
+            text = self.reports[idx]
         else:
-            text = None
+            # Return empty tensor instead of None for collate compatibility
+            text = torch.tensor([])
 
         return image, text, label
 
@@ -76,8 +129,26 @@ class MIMICCXRDataLoader:
         """
         self.config = config
         self.base_path = config.paths.base_data_path
-        self.image_dir = os.path.join(self.base_path, 'MIMIC-CXR-JPG', 'files')
-        self.reports_dir = os.path.join(self.base_path, 'reports', 'files')  # NEW: reports directory
+
+        # Try pre-resized images first, fallback to original if not found
+        resized_dir = os.path.join(self.base_path, 'MIMIC-CXR-JPG', 'files_224')
+        original_dir = os.path.join(self.base_path, 'MIMIC-CXR-JPG', 'files')
+
+        if os.path.exists(resized_dir):
+            self.image_dir = resized_dir
+            print(f"[Dataset] Using pre-resized images: {resized_dir}")
+        elif os.path.exists(original_dir):
+            self.image_dir = original_dir
+            print(f"[Dataset] Using original images (will resize on-the-fly): {original_dir}")
+        else:
+            # Neither directory found - will fail later with clear error
+            self.image_dir = original_dir  # Use original path for error messages
+            print(f"[Dataset] ERROR: Image directory not found!")
+            print(f"  Tried: {resized_dir}")
+            print(f"  Tried: {original_dir}")
+            print(f"  Please check base_data_path in config: {self.base_path}")
+
+        self.reports_dir = os.path.join(self.base_path, 'reports', 'files')
 
         # Load class names from JSON configuration
         from utils import load_class_names
@@ -196,67 +267,112 @@ class MIMICCXRDataLoader:
 
         print(f"\nTotal images loaded: {len(data)}")
 
-        # Build image paths and load reports
-        print("\nLoading reports (Findings + Impression)...")
-        image_paths = []
-        reports = []  # NEW: list to store report text for each image
-        valid_labels = []  # Store labels for images that exist
-        valid_split_info = []  # Store split info for images that exist
-        skipped_count = 0  # Count of missing images
+        # ===== 向量化构建路径 =====
+        print("\nBuilding image paths...")
+        data['subject_id_str'] = data['subject_id'].astype(str)
+        data['study_id_str'] = data['study_id'].astype(str)
+        data['p_prefix'] = 'p' + data['subject_id_str'].str[:2]
+        data['p_subject'] = 'p' + data['subject_id_str']
+        data['s_study'] = 's' + data['study_id_str']
 
-        for idx, row in data.iterrows():
-            subject_id = str(row['subject_id'])
-            study_id = str(row['study_id'])
-            dicom_id = row['dicom_id']
+        data['img_path'] = data.apply(
+            lambda row: os.path.join(
+                self.image_dir, row['p_prefix'], row['p_subject'],
+                row['s_study'], f"{row['dicom_id']}.jpg"
+            ), axis=1
+        )
 
-            # Construct image path: files/p{first2}/p{subject_id}/s{study_id}/{dicom_id}.jpg
-            p_prefix = 'p' + subject_id[:2]
-            p_subject = 'p' + subject_id
-            s_study = 's' + study_id
+        # 过滤存在的文件
+        print("Checking image existence...")
+        data['exists'] = data['img_path'].apply(os.path.exists)
+        valid_data = data[data['exists']].copy()
+        skipped_count = len(data) - len(valid_data)
 
-            img_path = os.path.join(
-                self.image_dir,
-                p_prefix,
-                p_subject,
-                s_study,
-                f"{dicom_id}.jpg"
-            )
-
-            # Check if image exists, skip if not
-            if not os.path.exists(img_path):
-                skipped_count += 1
-                continue
-
-            image_paths.append(img_path)
-
-            # Load report for this study (multiple images may share the same report)
-            report_text = self._load_report_for_study(subject_id, study_id)
-            reports.append(report_text)
-
-            # Store label for this image
-            valid_labels.append(row[self.class_names].values)
-
-            # Store split info if available
-            if use_provided_split:
-                valid_split_info.append(row['split'])
-
-            # Progress indicator
-            if (idx + 1) % 1000 == 0:
-                print(f"  Processed {idx + 1}/{len(data)} records ({len(image_paths)} valid, {skipped_count} missing)...")
-
-        # Print summary
         print(f"\nDataset loading summary:")
         print(f"  Total records in CSV: {len(data)}")
-        print(f"  Valid images found: {len(image_paths)}")
+        print(f"  Valid images found: {len(valid_data)}")
         print(f"  Missing images skipped: {skipped_count}")
-        print(f"  Success rate: {100*len(image_paths)/len(data):.2f}%")
+        print(f"  Success rate: {100*len(valid_data)/len(data):.2f}%")
 
-        # Count how many reports were successfully loaded
-        reports_loaded = sum(1 for r in reports if r and r != "")
-        print(f"\nSuccessfully loaded {reports_loaded}/{len(reports)} reports ({100*reports_loaded/len(reports):.1f}%)")
+        # ===== 边界检查：如果没有有效数据，提前返回 =====
+        if len(valid_data) == 0:
+            print("\n" + "=" * 80)
+            print("ERROR: No valid images found!")
+            print("=" * 80)
+            print(f"Please check:")
+            print(f"  1. Image directory exists: {self.image_dir}")
+            print(f"  2. CSV file contains valid records: {self.metadata_file}")
+            print(f"  3. Image files exist in the directory structure")
+            print("=" * 80)
+            raise FileNotFoundError(
+                f"No valid images found in {self.image_dir}. "
+                f"Please check the data path configuration."
+            )
 
-        # Process labels (convert from list to numpy array)
-        labels = np.array(valid_labels, dtype=np.float32)
+        # ===== 检查tokenization缓存 =====
+        from utils import TokenizationCache
+
+        cache_exists = False
+        if self.config.paths.tokenized_cache_dir is not None and use_provided_split:
+            # 检查所有split的缓存是否存在
+            cache_manager = TokenizationCache(self.config.paths.tokenized_cache_dir)
+            split_sizes = {
+                'train': (valid_data['split'] == 'train').sum(),
+                'val': (valid_data['split'] == 'validate').sum(),
+                'test': (valid_data['split'] == 'test').sum()
+            }
+
+            cache_exists = all(
+                os.path.exists(cache_manager.generate_cache_path(
+                    split_name, self.config.model.context_length, size
+                )) for split_name, size in split_sizes.items()
+            )
+
+        # ===== 根据缓存情况选择路径 =====
+        if cache_exists:
+            print("\n" + "=" * 80)
+            print("✓ Tokenization cache found! Skipping report loading...")
+            print("=" * 80)
+            print(f"Reports will be loaded from cache during dataset initialization")
+            print(f"Cache location: {self.config.paths.tokenized_cache_dir}")
+            reports = [None] * len(valid_data)  # 占位符
+            print(f"Created {len(reports)} placeholder entries for cached reports")
+            print("=" * 80)
+        else:
+            print("\n" + "=" * 80)
+            print("✗ No tokenization cache. Loading reports (optimized)...")
+            print("=" * 80)
+
+            # 预加载唯一study的报告（减少重复读取）
+            unique_studies = valid_data[['subject_id_str', 'study_id_str']].drop_duplicates()
+            print(f"Loading {len(unique_studies)} unique study reports (for {len(valid_data)} images)...")
+            report_cache = {}
+
+            from tqdm import tqdm
+            for _, row in tqdm(unique_studies.iterrows(), total=len(unique_studies), desc="Loading reports"):
+                key = (row['subject_id_str'], row['study_id_str'])
+                report_cache[key] = self._load_report_for_study(key[0], key[1])
+
+            # 快速映射报告到每个图像
+            print("Mapping reports to images...")
+            valid_data['report'] = valid_data.apply(
+                lambda row: report_cache[(row['subject_id_str'], row['study_id_str'])],
+                axis=1
+            )
+            reports = valid_data['report'].tolist()
+
+            reports_loaded = sum(1 for r in reports if r and r != "")
+            print(f"\n✓ Successfully loaded {reports_loaded}/{len(reports)} reports ({100*reports_loaded/len(reports):.1f}%)")
+            print("=" * 80)
+
+        # ===== 构建返回值 =====
+        image_paths = valid_data['img_path'].tolist()
+        labels = valid_data[self.class_names].values.astype(np.float32)
+
+        if use_provided_split:
+            split_info = valid_data['split'].values
+        else:
+            split_info = None
 
         # Handle NaN and uncertain labels
         print(f"\nProcessing labels with policy: '{label_policy}'")
@@ -276,14 +392,14 @@ class MIMICCXRDataLoader:
         # Print label statistics
         self._print_label_statistics(labels)
 
-        # Plot class distribution
-        self._plot_class_distribution(labels)
-
-        if use_provided_split:
-            split_info = np.array(valid_split_info)
-            return image_paths, labels, reports, split_info
+        # Plot class distribution (only if not already exists)
+        output_path = os.path.join(self.config.paths.output_dir, 'class_distribution.png')
+        if not os.path.exists(output_path):
+            self._plot_class_distribution(labels)
         else:
-            return image_paths, labels, reports, None
+            print(f"\nClass distribution plot already exists: {output_path}")
+
+        return image_paths, labels, reports, split_info
 
     def split_dataset(self, image_paths, labels, reports, split_info=None):
         """
@@ -357,8 +473,8 @@ class MIMICCXRDataLoader:
         Args:
             data_splits: Dictionary with data splits (each split contains image_paths, labels, reports)
             preprocess: Image preprocessing transform
-            tokenizer: Text tokenizer
-            text_prompts: List of text prompts (used for zero-shot if use_reports=False)
+            tokenizer: Text tokenizer (will pre-tokenize reports if provided)
+            text_prompts: List of text prompts (unused)
             use_reports: Whether to use reports (True for fine-tuning) or text_prompts (False for zero-shot)
 
         Returns:
@@ -371,9 +487,11 @@ class MIMICCXRDataLoader:
                 image_paths=image_paths,
                 labels=labels,
                 transform=preprocess,
-                tokenizer=tokenizer,
-                text_prompts=None if use_reports else text_prompts,  # Use prompts only for zero-shot
-                reports=reports if use_reports else None  # Use reports for fine-tuning
+                tokenizer=tokenizer if use_reports else None,  # Pass tokenizer for pre-tokenization
+                reports=reports if use_reports else None,  # Use reports for fine-tuning
+                context_length=self.config.model.context_length,
+                cache_dir=self.config.paths.tokenized_cache_dir if use_reports else None,  # 推理时不用缓存
+                split_name=split_name  # Pass split name for cache filename
             )
 
             # Use shuffle for train, not for val/test
@@ -384,7 +502,7 @@ class MIMICCXRDataLoader:
                 batch_size=self.config.data.batch_size,
                 shuffle=shuffle,
                 num_workers=self.config.data.num_workers,
-                pin_memory=True
+                pin_memory=True  # 加速 CPU→GPU 数据传输
             )
 
             dataloaders[split_name] = dataloader

@@ -64,3 +64,8 @@ Thumbs.db
 
 # ai for code
 .claude/
+
+# 调试专用文件
+preprocess_resize_images.py
+generate_tokenization_cache.py
+tokenization_cache.py

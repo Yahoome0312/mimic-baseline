@@ -1,7 +1,3 @@
-"""
-Configuration file for ISIC 2019 CLIP training project
-"""
-
 import os
 from dataclasses import dataclass, field
 from typing import Dict, List
@@ -19,9 +15,20 @@ class PathConfig:
     # Output path - Updated for MIMIC results
     output_dir: str = r"C:\Users\admin\Desktop\mimic-baseline\results\mimic_clip"
 
+    # Tokenization cache path (defaults to base_data_path/tokenized_cache)
+    tokenized_cache_dir: str = None
+
     def __post_init__(self):
-        """Create output directory if it doesn't exist"""
+        """Create output directory and cache directory if they don't exist"""
         os.makedirs(self.output_dir, exist_ok=True)
+
+        # Set default cache directory if not provided
+        if self.tokenized_cache_dir is None:
+            # Place cache inside base_data_path
+            self.tokenized_cache_dir = os.path.join(self.base_data_path, 'tokenized_cache')
+
+        # Create cache directory
+        os.makedirs(self.tokenized_cache_dir, exist_ok=True)
 
 
 @dataclass
@@ -35,9 +42,8 @@ class ModelConfig:
 @dataclass
 class DataConfig:
     """Data configuration"""
-    batch_size: int = 32  # Reduced for MIMIC-CXR (larger images)
-    num_workers: int = 0  # Set to 0 for Windows compatibility (avoid pickle errors)
-    test_size: float = 0.2
+    batch_size: int = 96  
+    num_workers: int = 8  
     val_size: float = 0.1
     random_state: int = 42
     use_provided_split: bool = True  # Use official MIMIC-CXR split
@@ -48,8 +54,8 @@ class DataConfig:
 class TrainingConfig:
     """Training configuration"""
     # Learning rates
-    learning_rate_image: float = 1e-5
-    learning_rate_text: float = 1e-5  # Changed to same as image encoder
+    learning_rate_image: float = 5e-5
+    learning_rate_text: float = 5e-5  # Changed to same as image encoder
 
     # Training parameters
     epochs: int = 100
@@ -59,6 +65,12 @@ class TrainingConfig:
     # Scheduler
     use_scheduler: bool = True
     scheduler_type: str = "cosine"  # cosine, step, or none
+
+    # Warmup
+    use_warmup: bool = True
+    warmup_epochs: int = 5          # Number of epochs for warmup
+    warmup_start_factor: float = 0.01  # Starting LR = 1% of base LR
+    warmup_end_factor: float = 1.0     # Ending LR = 100% of base LR
 
 
 
@@ -85,8 +97,15 @@ class Config:
         for key, value in kwargs.items():
             if hasattr(self.paths, key):
                 setattr(self.paths, key, value)
-        # Recreate output directory
+        # Refresh cache dir when base_data_path changes unless explicitly set.
+        if 'base_data_path' in kwargs and 'tokenized_cache_dir' not in kwargs:
+            self.paths.tokenized_cache_dir = os.path.join(
+                self.paths.base_data_path, 'tokenized_cache'
+            )
+        # Recreate output and cache directories
         os.makedirs(self.paths.output_dir, exist_ok=True)
+        if self.paths.tokenized_cache_dir:
+            os.makedirs(self.paths.tokenized_cache_dir, exist_ok=True)
 
     def to_dict(self) -> dict:
         """Convert config to dictionary"""

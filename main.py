@@ -1,30 +1,9 @@
-"""
-Main entry point for ISIC 2019 CLIP training
-
-Usage examples:
-    # Run with default configuration
-    python main.py
-
-    # Run only zero-shot
-    python main.py --method zeroshot
-
-    # Run only fine-tuning
-    python main.py --method finetune
-
-    # Specify custom data path and output directory
-    python main.py --data_path D:\Data\isic2019 --output_dir C:\Results\my_experiment
-
-    # Specify custom checkpoint directory
-    python main.py --checkpoint_dir C:\Models\biomedclip
-
-    # Modify training parameters
-    python main.py --epochs 50 --batch_size 32 --lr 5e-6
-"""
 
 import argparse
 import os
 import sys
 import numpy as np
+import torch
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -39,7 +18,7 @@ from utils import set_seed, print_device_info, load_class_names, load_class_conf
 
 def parse_args():
     """Parse command line arguments"""
-    parser = argparse.ArgumentParser(description='ISIC 2019 CLIP Training')
+    parser = argparse.ArgumentParser(description='MIMIC CLIP Training')
 
     # Method selection
     parser.add_argument('--method', type=str, default='all',
@@ -97,6 +76,8 @@ def parse_args():
     # Testing control
     parser.add_argument('--skip_test', action='store_true',
                        help='Skip testing after training (only train and save model)')
+    parser.add_argument('--test_model_path', type=str, default=None,
+                       help='Path to pretrained model (.pth file). If provided, skip training and test only.')
 
     # Zero-shot arguments
     parser.add_argument('--zeroshot_threshold', type=float, default=0.0,
@@ -175,20 +156,23 @@ def run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader, experim
     return results
 
 
-def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_loader, test_loader, experiment_name=None, skip_test=False, class_names=None, task_type='multi-label', text_prompts=None):
-    """Run full fine-tuning with CLIP loss (supports multi-label)"""
+def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_loader, test_loader, experiment_name=None, skip_test=False, class_names=None, text_prompts=None):
+    """Run full fine-tuning with CLIP loss (multi-label)"""
     print("\n" + "=" * 80)
     print("Starting Fine-Tuning with CLIP Loss")
     print("=" * 80)
 
-    # Create fine-tuned model
-    num_classes = len(class_names) if class_names is not None else 14  # Default to MIMIC-CXR
-    model = CLIPFineTune(clip_model, num_classes)
+    # Create fine-tuned model (no class number limitation)
+    model = CLIPFineTune(clip_model)
 
     # Create trainer
-    trainer = CLIPTrainer(model, config, config.paths.output_dir,
-                         experiment_name=experiment_name,
-                         task_type=task_type)
+    trainer = CLIPTrainer(
+        model,
+        config,
+        config.paths.output_dir,
+        experiment_name=experiment_name,
+        tokenizer=tokenizer
+    )
 
     # Train
     trainer.train(train_loader, val_loader)
@@ -274,10 +258,9 @@ def main():
     data_loader = None
     data_splits = None
 
-    # Load MIMIC-CXR class configuration for text prompts
-    mimic_class_config = load_class_config('mimic_cxr', verbose=False)
-    text_prompts = [f"There is {cls.lower().replace('_', ' ')}."
-                    for cls in mimic_class_config['class_names']]
+    # Load MIMIC-CXR class configuration (with text prompts)
+    mimic_class_config = load_class_config('mimic_cxr', verbose=True)
+    text_prompts = mimic_class_config['text_prompts']
 
     if need_mimic:
         # Load and split MIMIC-CXR data
@@ -309,18 +292,14 @@ def main():
 
     # Create test loader (MIMIC, ChestXray14, ChestXDet10, or CheXpert)
     if args.test_chestxray14:
-        print("\n" + "=" * 80)
-        print("Using ChestXray14 TEST SET")
-        print("=" * 80)
+        # Load ChestXray14 class configuration
+        chestxray14_config = load_class_config('chestxray14', verbose=True)
+        chestxray14_prompts = chestxray14_config['text_prompts']
 
         # Load ChestXray14 test data
         external_data_path = args.chestxray14_path if args.chestxray14_path else r"D:\Data\ChestXray14\CXR8"
         external_loader = ChestXray14DataLoader(config, data_path=external_data_path)
         external_image_paths, external_labels = external_loader.load_test_data()
-
-        # Use ChestXray14 class names for text prompts
-        chestxray14_prompts = [f"There is {cls.lower().replace('_', ' ')}."
-                               for cls in external_loader.class_names]
 
         test_loader = external_loader.create_dataloader(
             external_image_paths, external_labels,
@@ -328,18 +307,14 @@ def main():
         )
         test_dataset_name = "ChestXray14"
     elif args.test_chestxdet10:
-        print("\n" + "=" * 80)
-        print("Using ChestXDet10 TEST SET")
-        print("=" * 80)
+        # Load ChestXDet10 class configuration
+        chestxdet10_config = load_class_config('chestxdet10', verbose=True)
+        chestxdet10_prompts = chestxdet10_config['text_prompts']
 
         # Load ChestXDet10 test data
         external_data_path = args.chestxdet10_path if args.chestxdet10_path else r"D:\Data\ChestXDet10"
         external_loader = ChestXDet10DataLoader(config, data_path=external_data_path)
         external_image_paths, external_labels = external_loader.load_test_data()
-
-        # Use ChestXDet10 class names for text prompts
-        chestxdet10_prompts = [f"There is {cls.lower().replace('_', ' ')}."
-                               for cls in external_loader.class_names]
 
         test_loader = external_loader.create_dataloader(
             external_image_paths, external_labels,
@@ -347,18 +322,14 @@ def main():
         )
         test_dataset_name = "ChestXDet10"
     elif args.test_chexpert:
-        print("\n" + "=" * 80)
-        print("Using CheXpert TEST SET")
-        print("=" * 80)
+        # Load CheXpert class configuration
+        chexpert_config = load_class_config('chexpert_5class', verbose=True)
+        chexpert_prompts = chexpert_config['text_prompts']
 
         # Load CheXpert test data
         external_data_path = args.chexpert_path if args.chexpert_path else r"D:\Data\CheXpert\CheXpert-v1.0-small"
         external_loader = CheXpertDataLoader(config, data_path=external_data_path)
         external_image_paths, external_labels = external_loader.load_test_data()
-
-        # Use CheXpert 5-class names for text prompts
-        chexpert_prompts = [f"A disease of {cls.lower().replace('_', ' ')}."
-                           for cls in external_loader.class_names]
 
         test_loader = external_loader.create_dataloader(
             external_image_paths, external_labels,
@@ -402,10 +373,81 @@ def main():
     # Store all results
     all_results = []
 
+    # Handle model loading for testing (if test_model_path is provided)
+    if args.test_model_path:
+        print("\n" + "=" * 80)
+        print("LOADING PRETRAINED MODEL FOR TESTING")
+        print("=" * 80)
+
+        # Validate model path
+        if not os.path.exists(args.test_model_path):
+            raise FileNotFoundError(f"Model file not found: {args.test_model_path}")
+
+        print(f"Model path: {args.test_model_path}")
+
+        # Create CLIPFineTune model (no class limitation)
+        from models import CLIPFineTune
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        model = CLIPFineTune(clip_model)
+
+        # Load model weights
+        print(f"Loading model on {device}...")
+        state_dict = torch.load(args.test_model_path, map_location=device)
+
+        # Remove legacy text_embeddings if exists (from old checkpoints)
+        if 'text_embeddings' in state_dict:
+            print("Removing legacy text_embeddings from checkpoint...")
+            del state_dict['text_embeddings']
+
+        # Load weights (strict=False allows missing text_embeddings)
+        model.load_state_dict(state_dict, strict=False)
+        model.to(device)
+        model.eval()
+        print("✓ Model loaded successfully")
+        print(f"✓ Model can test on ANY dataset (flexible inference)")
+
+        # Create trainer for predict()
+        from trainers import CLIPTrainer
+        trainer = CLIPTrainer(
+            model, config, config.paths.output_dir,
+            experiment_name=args.experiment_name,
+            tokenizer=tokenizer
+        )
+        trainer.best_model_path = args.test_model_path
+
+        # Run prediction
+        print("\n" + "=" * 80)
+        print("Running Inference on Test Set")
+        print("=" * 80)
+        test_preds, test_labels, test_scores = trainer.predict(
+            test_loader,
+            class_names=eval_class_names,
+            threshold=0.0,
+            text_prompts=eval_text_prompts
+        )
+
+        # Evaluate
+        from evaluators import ModelEvaluator
+        evaluator = ModelEvaluator(config, config.paths.output_dir)
+        save_name = args.experiment_name if args.experiment_name else "loaded_model_test"
+        results = evaluator.evaluate(
+            test_labels, test_preds,
+            f"Loaded Model Test - {test_dataset_name}",
+            save_name,
+            y_scores=test_scores,
+            class_names=eval_class_names
+        )
+
+        print("\n" + "=" * 80)
+        print("TESTING COMPLETED")
+        print("=" * 80)
+        return results
+
     # Run methods
     if args.method in ['all', 'zeroshot']:
-        experiment_suffix = f"_on_{test_dataset_name}" if (args.test_chestxray14 or args.test_chestxdet10 or args.test_chexpert) else ""
-        exp_name = (args.experiment_name + experiment_suffix) if args.experiment_name else f"zeroshot{experiment_suffix}"
+        # Use experiment_name as-is, or default to "zeroshot"
+        # Model name reflects the training dataset (MIMIC), not test dataset
+        exp_name = args.experiment_name if args.experiment_name else "zeroshot"
 
         result1 = run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader,
                               experiment_name=exp_name, threshold=args.zeroshot_threshold,
@@ -417,14 +459,17 @@ def main():
         if args.method == 'all':
             clip_model, tokenizer, preprocess = model_loader.load_model()
 
-        experiment_suffix = f"_on_{test_dataset_name}" if (args.test_chestxray14 or args.test_chestxdet10 or args.test_chexpert) else ""
-        exp_name = (args.experiment_name + experiment_suffix) if args.experiment_name else f"finetune{experiment_suffix}"
+        # Use experiment_name as-is, or default to "finetune"
+        # Model name reflects the training dataset (MIMIC), not test dataset
+        exp_name = args.experiment_name if args.experiment_name else "finetune"
 
+        # Use test dataset class names for inference (dimension must match labels)
         result2 = run_finetune(config, clip_model, tokenizer, preprocess,
                               train_loader, val_loader, test_loader,
                               experiment_name=exp_name,
-                              skip_test=args.skip_test, class_names=eval_class_names,
-                              task_type=mimic_class_config['task_type'], text_prompts=eval_text_prompts)
+                              skip_test=args.skip_test,
+                              class_names=eval_class_names,      # Test dataset classes
+                              text_prompts=eval_text_prompts)    # Test dataset prompts
         all_results.append(result2)
 
     # Compare results if multiple methods were run

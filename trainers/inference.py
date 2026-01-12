@@ -46,9 +46,11 @@ def clip_inference(clip_model, test_loader, class_names, tokenizer, config, thre
     texts = tokenizer(text_prompts, context_length=config.model.context_length).to(device)
 
     with torch.no_grad():
-        # Get text features for all classes
-        text_features = clip_model.encode_text(texts)
-        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+        # Use AMP for inference (faster)
+        with torch.amp.autocast('cuda'):
+            # Get text features for all classes
+            text_features = clip_model.encode_text(texts)
+            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
 
         all_predictions = []
         all_labels = []
@@ -57,15 +59,17 @@ def clip_inference(clip_model, test_loader, class_names, tokenizer, config, thre
         for images, _, labels in tqdm(test_loader, desc="Inference"):
             images = images.to(device)
 
-            # Get image features
-            image_features = clip_model.encode_image(images)
-            image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+            # Use AMP for inference
+            with torch.amp.autocast('cuda'):
+                # Get image features
+                image_features = clip_model.encode_image(images)
+                image_features = image_features / image_features.norm(dim=-1, keepdim=True)
 
-            # Compute similarity with all class texts
-            similarity = image_features @ text_features.T  # (batch, num_classes)
+                # Compute similarity with all class texts
+                similarity = image_features @ text_features.T  # (batch, num_classes)
 
-            # Multi-label prediction using threshold
-            predictions = (similarity > threshold).float()
+                # Multi-label prediction using threshold
+                predictions = (similarity > threshold).float()
 
             all_predictions.extend(predictions.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())

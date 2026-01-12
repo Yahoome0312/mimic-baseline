@@ -1,7 +1,7 @@
 {
   "dataset_name": "MIMIC-CXR",
   "num_classes": 14,
-  "task_type": "multi-label",
+  "text_prompt_template": "A disease of {disease}.",
   "class_names": [
     "Atelectasis",
     "Cardiomegaly",

@@ -10,6 +10,7 @@ from .helpers import (
     load_class_names,
     list_available_datasets
 )
+from .tokenization_cache import TokenizationCache
 
 __all__ = [
     'EarlyStopping',
@@ -19,5 +20,6 @@ __all__ = [
     'print_device_info',
     'load_class_config',
     'load_class_names',
-    'list_available_datasets'
+    'list_available_datasets',
+    'TokenizationCache'
 ]

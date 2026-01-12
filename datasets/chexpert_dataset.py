@@ -22,14 +22,12 @@ class CheXpertDataset(Dataset):
             image_paths: List of image file paths
             labels: Array of multi-label annotations (N, num_classes)
             transform: Image transformations
-            tokenizer: Text tokenizer (optional)
-            text_prompts: List of text prompts for each class (optional)
+            tokenizer: Text tokenizer (unused; tokenization handled in inference)
+            text_prompts: List of text prompts for each class (unused)
         """
         self.image_paths = image_paths
         self.labels = labels
         self.transform = transform
-        self.tokenizer = tokenizer
-        self.text_prompts = text_prompts
 
     def __len__(self):
         return len(self.image_paths)
@@ -45,13 +43,8 @@ class CheXpertDataset(Dataset):
         # Get labels
         label = torch.tensor(self.labels[idx], dtype=torch.float32)
 
-        # Tokenize text if available
-        if self.tokenizer and self.text_prompts:
-            text = self.tokenizer(self.text_prompts)
-        else:
-            text = None
-
-        return image, text, label
+        # Return empty tensor instead of None for text field (for collate compatibility)
+        return image, torch.tensor([]), label
 
 
 class CheXpertDataLoader:

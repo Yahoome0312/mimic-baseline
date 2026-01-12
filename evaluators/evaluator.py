@@ -59,78 +59,10 @@ class ModelEvaluator:
             raise ValueError("class_names parameter is required (load from JSON using utils.load_class_names)")
         eval_class_names = class_names
 
-        # Infer task type from labels shape (2D = multi-label, 1D = single-label)
+        # All datasets use multi-label classification
         import numpy as np
         y_true = np.array(y_true)
-        is_multilabel = len(y_true.shape) > 1 and y_true.shape[1] > 1
-
-        if is_multilabel:
-            return self._evaluate_multilabel(y_true, y_pred, method_name, save_path, y_scores, eval_class_names)
-        else:
-            return self._evaluate_singlelabel(y_true, y_pred, method_name, save_path, eval_class_names)
-
-    def _evaluate_singlelabel(self, y_true, y_pred, method_name, save_path, class_names):
-        """Evaluate single-label classification"""
-        # Calculate various metrics
-        accuracy = accuracy_score(y_true, y_pred)
-        balanced_acc = balanced_accuracy_score(y_true, y_pred)
-
-        # Calculate F1 score for each class
-        f1_per_class = f1_score(y_true, y_pred, average=None, zero_division=0)
-        f1_macro = f1_score(y_true, y_pred, average='macro', zero_division=0)
-        f1_weighted = f1_score(y_true, y_pred, average='weighted', zero_division=0)
-
-        # Print results
-        print(f"\nOverall Metrics:")
-        print(f"  Accuracy: {accuracy:.4f}")
-        print(f"  Balanced Accuracy: {balanced_acc:.4f}")
-        print(f"  F1-score (Macro): {f1_macro:.4f}")
-        print(f"  F1-score (Weighted): {f1_weighted:.4f}")
-
-        print(f"\nF1-score per class:")
-        for i, cls in enumerate(class_names):
-            print(f"  {cls}: {f1_per_class[i]:.4f}")
-
-        # Detailed classification report
-        print(f"\nDetailed Classification Report:")
-        report = classification_report(y_true, y_pred, target_names=class_names, digits=4, zero_division=0)
-        print(report)
-
-        # Confusion matrix
-        cm = confusion_matrix(y_true, y_pred)
-        print(f"\nConfusion Matrix:")
-        print(cm)
-
-        # Visualize confusion matrix
-        if save_path:
-            self._plot_confusion_matrix(cm, method_name, save_path, class_names)
-
-        # Calculate and plot per-class recall
-        per_class_recall, per_class_count = self._calculate_per_class_recall(y_true, y_pred, class_names)
-
-        if save_path:
-            self._plot_per_class_recall(per_class_recall, per_class_count, accuracy, balanced_acc,
-                                       method_name, save_path, class_names)
-
-        # Aggregate results
-        results = {
-            'method': method_name,
-            'accuracy': float(accuracy),
-            'balanced_accuracy': float(balanced_acc),
-            'f1_macro': float(f1_macro),
-            'f1_weighted': float(f1_weighted),
-            'f1_per_class': {class_names[i]: float(f1_per_class[i]) for i in range(len(class_names))},
-            'recall_per_class': per_class_recall,
-            'samples_per_class': per_class_count,
-            'confusion_matrix': cm.tolist(),
-            'classification_report': classification_report(y_true, y_pred, target_names=class_names, output_dict=True, zero_division=0)
-        }
-
-        if save_path:
-            with open(os.path.join(self.output_dir, f'{save_path}_results.json'), 'w') as f:
-                json.dump(results, f, indent=2)
-
-        return results
+        return self._evaluate_multilabel(y_true, y_pred, method_name, save_path, y_scores, eval_class_names)
 
     def _evaluate_multilabel(self, y_true, y_pred, method_name, save_path, y_scores=None, class_names=None):
         """Evaluate multi-label classification"""

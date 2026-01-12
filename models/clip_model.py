@@ -44,38 +44,42 @@ class CLIPLoss(nn.Module):
 
 
 class CLIPFineTune(nn.Module):
-    """Fully fine-tuned CLIP model (using CLIP loss)"""
+    """
+    Fully fine-tuned CLIP model (using CLIP loss)
 
-    def __init__(self, clip_model, num_classes):
+    This model fine-tunes both image and text encoders using radiology reports.
+    No fixed text embeddings - uses dynamic text encoding for flexibility.
+    """
+
+    def __init__(self, clip_model):
         super().__init__()
         self.clip_model = clip_model
 
-        # Get feature dimension
-        device = next(clip_model.parameters()).device
-        with torch.no_grad():
-            dummy_input = torch.randn(1, 3, 224, 224).to(device)
-            dummy_features = clip_model.encode_image(dummy_input)
-            self.feature_dim = dummy_features.shape[-1]
+    def forward(self, images, texts):
+        """
+        Forward pass with dynamic text encoding
 
-        print(f"Feature dimension: {self.feature_dim}")
+        Args:
+            images: (batch, 3, 224, 224) - Input images
+            texts: Tokenized text (training: reports, inference: prompts)
 
-        # Learnable class text embeddings
-        self.text_embeddings = nn.Parameter(torch.randn(num_classes, self.feature_dim))
-        nn.init.normal_(self.text_embeddings, std=0.02)
+        Returns:
+            image_features: Normalized image features (batch, 512)
+            text_features: Normalized text features (batch, 512)
+        """
+        if texts is None:
+            raise ValueError(
+                "texts is required for MIMIC training with radiology reports. "
+                "This model does not support fixed text_embeddings."
+            )
 
-    def forward(self, images, texts=None):
         # Extract image features (fine-tuned)
         image_features = self.clip_model.encode_image(images)
         image_features = image_features / image_features.norm(dim=-1, keepdim=True)
 
-        # If texts are provided (e.g., radiology reports), encode them
-        if texts is not None:
-            text_features = self.clip_model.encode_text(texts)
-            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-        else:
-            # Otherwise, use learnable class text embeddings (original behavior)
-            text_features = self.text_embeddings
-            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+        # Extract text features (dynamic encoding, any number of classes)
+        text_features = self.clip_model.encode_text(texts)
+        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
 
         return image_features, text_features
 

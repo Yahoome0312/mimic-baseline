@@ -192,8 +192,11 @@ def load_class_config(dataset_name, class_names_dir=None, verbose=True):
 
     class_names = config['class_names']
     num_classes = len(class_names)
-    task_type = config.get('task_type', 'multi-label')
     dataset_display_name = config.get('dataset_name', dataset_name)
+
+    # Get text prompt template and generate prompts
+    template = config.get('text_prompt_template', 'There is {disease}.')
+    text_prompts = [template.replace('{disease}', cls.lower().replace('_', ' ')) for cls in class_names]
 
     # Print info
     if verbose:
@@ -201,15 +204,19 @@ def load_class_config(dataset_name, class_names_dir=None, verbose=True):
         print(f"Loaded class configuration for: {dataset_display_name}")
         print(f"{'='*80}")
         print(f"Number of classes: {num_classes}")
-        print(f"Task type: {task_type}")
-        print(f"Classes: {', '.join(class_names)}")
+        print(f"Task type: multi-label")
+        print(f"Template: {template}")
+        print(f"\nText prompts:")
+        for cls, prompt in zip(class_names, text_prompts):
+            print(f"  {cls}: {prompt}")
         print(f"{'='*80}\n")
 
     return {
         'class_names': class_names,
         'num_classes': num_classes,
-        'task_type': task_type,
-        'dataset_name': dataset_display_name
+        'dataset_name': dataset_display_name,
+        'text_prompt_template': template,
+        'text_prompts': text_prompts
     }
 
 
