@@ -7,7 +7,7 @@ from typing import Dict, List
 class PathConfig:
     """Path configuration"""
     # Model checkpoint path
-    local_checkpoints_dir: str = r"C:\Users\admin\Desktop\baseline\bimedclip-zs\checkpoints"
+    local_checkpoints_dir: str = r"C:\Users\admin\Desktop\mimic-baseline\checkpoints"
 
     # Data path - Changed to MIMIC-CXR dataset
     base_data_path: str = r"D:\Data\MIMIC"
@@ -34,7 +34,8 @@ class PathConfig:
 @dataclass
 class ModelConfig:
     """Model configuration"""
-    model_name: str = "biomedclip_local"
+    # Use local-dir schema to load tokenizer from local directory
+    model_name: str = r"local-dir:C:\Users\admin\Desktop\mimic-baseline\checkpoints"
     context_length: int = 256
     temperature: float = 0.07  # CLIP loss temperature
 

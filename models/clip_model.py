@@ -133,11 +133,19 @@ class BiomedCLIPLoader:
 
         # Create model
         print("Creating model...")
-        model, _, preprocess = create_model_and_transforms(
-            model_name=self.model_name,
-            pretrained=f"{self.local_checkpoints_dir}/open_clip_pytorch_model.bin",
-            **{f"image_{k}": v for k, v in preprocess_cfg.items()},
-        )
+        # When using 'local-dir:' schema, model weights are loaded automatically from that directory
+        # No need to specify 'pretrained' parameter explicitly
+        if self.model_name.startswith('local-dir:'):
+            model, _, preprocess = create_model_and_transforms(
+                model_name=self.model_name,
+                **{f"image_{k}": v for k, v in preprocess_cfg.items()},
+            )
+        else:
+            model, _, preprocess = create_model_and_transforms(
+                model_name=self.model_name,
+                pretrained=f"{self.local_checkpoints_dir}/open_clip_pytorch_model.bin",
+                **{f"image_{k}": v for k, v in preprocess_cfg.items()},
+            )
 
         print("Model loaded successfully!")
         return model, tokenizer, preprocess
