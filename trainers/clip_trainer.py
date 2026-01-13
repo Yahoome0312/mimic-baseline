@@ -139,11 +139,9 @@ class CLIPTrainer:
             verbose=True
         )
 
-        # Setup AMP (Automatic Mixed Precision)
-        self.use_amp = True  # Enable mixed precision training
-        self.scaler = torch.cuda.amp.GradScaler() if self.use_amp else None
-        if self.use_amp:
-            print("✓ AMP (Automatic Mixed Precision) enabled")
+        # Setup AMP (Automatic Mixed Precision) - always enabled for GPU training
+        self.scaler = torch.cuda.amp.GradScaler()
+        print("✓ AMP (Automatic Mixed Precision) enabled")
 
         # Training history
         self.train_losses = []
@@ -241,50 +239,21 @@ class CLIPTrainer:
         total_loss = 0
 
         for images, texts, labels in tqdm(train_loader, desc="Training"):
-            images, labels = images.to(self.device), labels.to(self.device)
-
-            # Move pre-tokenized texts to device if provided
-            if texts is not None:
-                texts = texts.to(self.device)
+            images = images.to(self.device)
+            texts = texts.to(self.device)
+            labels = labels.to(self.device)
 
             self.optimizer.zero_grad()
 
-            # Mixed precision training
-            if self.use_amp:
-                with torch.amp.autocast('cuda'):
-                    # Forward pass
-                    image_features, text_features = self.model(images, texts)
-
-                    # Multi-label classification
-                    if texts is not None:
-                        # When using reports: Use contrastive loss (image-report pairs)
-                        loss = self.criterion(image_features, text_features, labels)
-                    else:
-                        # Original: compute similarity for all classes
-                        logits = image_features @ text_features.T  # (batch, num_classes)
-
-                        # Use BCE loss for multi-label
-                        bce_loss = nn.BCEWithLogitsLoss()(logits, labels)
-                        loss = bce_loss
-
-                # Backward pass with gradient scaling
-                self.scaler.scale(loss).backward()
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
-            else:
-                # Standard training (no AMP)
+            # Forward pass with mixed precision
+            with torch.amp.autocast('cuda'):
                 image_features, text_features = self.model(images, texts)
+                loss = self.criterion(image_features, text_features, labels)
 
-                # Multi-label classification
-                if texts is not None:
-                    loss = self.criterion(image_features, text_features, labels)
-                else:
-                    logits = image_features @ text_features.T
-                    bce_loss = nn.BCEWithLogitsLoss()(logits, labels)
-                    loss = bce_loss
-
-                loss.backward()
-                self.optimizer.step()
+            # Backward pass with gradient scaling
+            self.scaler.scale(loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
 
             total_loss += loss.item()
 
@@ -307,20 +276,11 @@ class CLIPTrainer:
         with torch.inference_mode():
             for images, texts, labels in tqdm(val_loader, desc="Validation"):
                 images = images.to(self.device)
+                texts = texts.to(self.device)
+                labels = labels.to(self.device)
 
-                # Move pre-tokenized texts to device if provided
-                if texts is not None:
-                    texts = texts.to(self.device)
-
-                # Use AMP for validation too
-                if self.use_amp:
-                    with torch.amp.autocast('cuda'):
-                        # Extract features (using reports, consistent with training)
-                        image_features, text_features = self.model(images, texts)
-
-                        # Compute contrastive loss (same as training)
-                        loss = self.criterion(image_features, text_features, labels)
-                else:
+                # Forward pass with mixed precision
+                with torch.amp.autocast('cuda'):
                     image_features, text_features = self.model(images, texts)
                     loss = self.criterion(image_features, text_features, labels)
 
