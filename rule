@@ -13,7 +13,9 @@ python main.py --test_model_path "results/mimic_clip/finetune_on_CheXpert_best_m
 config/config.py 第 75-76 行
 
 python main.py --method finetune --test_chestxray14 --num_workers 8 -- experiment_name exp1
+python main.py --method finetune --test_chestxray14 --num_workers 8 -- experiment_name exp2
 
 python main.py --method finetune --data_path D:\Data\mimicmini --epochs 2 --batch_size 4 --test_chestxdet10 --experiment_name exp1
 
 python main.py --method finetune --test_chestxdet10 --experiment_name exp1
+python main.py --method finetune --test_chestxdet10 --experiment_name exp2

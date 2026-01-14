@@ -188,6 +188,15 @@ def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_lo
     # Save best model
     trainer.save_best_model(model_name)
 
+    # Clean up training resources to free memory for testing
+    import gc
+    print("\n[INFO] Cleaning up training resources...")
+    trainer.optimizer = None
+    trainer.scheduler = None
+    trainer.scaler = None
+    gc.collect()
+    torch.cuda.empty_cache()
+
     # Skip testing if requested
     if skip_test:
         print("\n" + "=" * 80)
