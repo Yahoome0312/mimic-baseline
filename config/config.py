@@ -49,7 +49,7 @@ class ModelConfig:
 class DataConfig:
     """Data configuration"""
     batch_size: int = 96  
-    num_workers: int = 8  
+    num_workers: int = 4  
     val_size: float = 0.1
     random_state: int = 42
     use_provided_split: bool = True  # Use official MIMIC-CXR split

@@ -324,6 +324,7 @@ class SuperCLIPFineTune(nn.Module):
         self.clip_model = clip_model
         self.use_patch_tokens = use_patch_tokens
         self._warned_no_tokens = False
+    
 
         cls_feature_dim = _get_visual_dim(clip_model)
         if cls_feature_dim is None:
@@ -376,6 +377,9 @@ class SuperCLIPFineTune(nn.Module):
         if tokens is not None:
             if tokens.dim() == 4:
                 tokens = tokens.flatten(2).transpose(1, 2)
+            if not self._logged_token_shape:
+                print(f"\n[INFO] Patch tokens shape (N, L, C): {tuple(tokens.shape)}")
+                self._logged_token_shape = True
             class_features = tokens.mean(dim=1)
         else:
             if self.use_patch_tokens:
