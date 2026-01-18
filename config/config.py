@@ -64,7 +64,7 @@ class TrainingConfig:
     learning_rate_text: float = 5e-5  # Changed to same as image encoder
 
     # Training parameters
-    epochs: int = 10
+    epochs: int = 15
     weight_decay: float = 0.01
     early_stopping_patience: int = 10
 

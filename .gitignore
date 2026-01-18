@@ -69,3 +69,4 @@ Thumbs.db
 preprocess_resize_images.py
 generate_tokenization_cache.py
 tokenization_cache.py
+log/

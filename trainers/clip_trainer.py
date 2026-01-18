@@ -317,9 +317,16 @@ class CLIPTrainer:
                     if isinstance(model_out, dict): #兼容两种模型输出格式的：原来的 CLIPFineTune 返回的是 tuple (image_features, text_features)。新的 SuperCLIPFineTune 返回的是 dict，里面包含 logits/labels/cap_fq/num_samples 等给 SuperCLIPLoss 用的字段
                         image_features = model_out["image_features"]
                         text_features = model_out["text_features"]
-                        # 验证阶段只计算对比损失，避免更新词频统计
-                        loss_out = None
-                        loss = self.criterion._clip_loss(image_features, text_features)
+                        # 验证阶段计算总损失，但用克隆缓冲避免更新词频统计
+                        class_loss = self.criterion._class_loss(
+                            model_out["cap_fq"].clone(),
+                            model_out["num_samples"].clone(),
+                            model_out["logits"],
+                            model_out["labels"],
+                        )
+                        clip_loss = self.criterion._clip_loss(image_features, text_features)
+                        loss_out = {"class_loss": class_loss, "contrastive_loss": clip_loss}
+                        loss = class_loss + clip_loss
                     else:
                         loss_out = None
                         image_features, text_features = model_out

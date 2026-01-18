@@ -21,7 +21,7 @@ python main.py --method finetune --data_path D:\Data\mimicmini --epochs 2 --batc
 python main.py --method finetune --test_chestxdet10 --experiment_name exp1
 python main.py --method finetune --test_chestxdet10 --experiment_name exp2
 python main.py --method finetune --test_chestxdet10 --experiment_name exp1sup --use_superclip
-
+python main.py --method finetune --test_chestxdet10 --experiment_name exp1sup --use_superclip 2>&1 | Tee-Object -FilePath .\log\exp1sup.log
 
 
 python main.py --test_model_path "results\exp2\exp2_best_model.pth" --test_chexpert
