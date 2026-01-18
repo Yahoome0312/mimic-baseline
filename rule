@@ -19,3 +19,5 @@ python main.py --method finetune --data_path D:\Data\mimicmini --epochs 2 --batc
 
 python main.py --method finetune --test_chestxdet10 --experiment_name exp1
 python main.py --method finetune --test_chestxdet10 --experiment_name exp2
+
+python main.py --test_model_path "results\exp2\exp2_best_model.pth" --test_chexpert

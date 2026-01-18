@@ -239,6 +239,15 @@ def main():
     # Update configuration from arguments
     config = update_config_from_args(config, args)
 
+    # Set output directory based on experiment_name
+    base_results_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
+    if args.experiment_name:
+        config.paths.output_dir = os.path.join(base_results_dir, args.experiment_name)
+    else:
+        config.paths.output_dir = os.path.join(base_results_dir, "default")
+    os.makedirs(config.paths.output_dir, exist_ok=True)
+    print(f"Results will be saved to: {config.paths.output_dir}")
+
     # Print configuration (only print training config if needed)
     if args.method in ['all', 'finetune']:
         config.print_config()
