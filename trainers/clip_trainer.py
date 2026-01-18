@@ -142,7 +142,7 @@ class CLIPTrainer:
 
         # Setup AMP (Automatic Mixed Precision) - always enabled for GPU training
         self.scaler = torch.amp.GradScaler('cuda')
-        print("✓ AMP (Automatic Mixed Precision) enabled")
+        print("[OK] AMP (Automatic Mixed Precision) enabled")
 
         # Training history
         self.train_losses = []
@@ -226,7 +226,7 @@ class CLIPTrainer:
                     schedulers=[warmup_scheduler, main_scheduler],
                     milestones=[warmup_epochs]
                 )
-                print(f"✓ Learning rate scheduler: {self.config.training.scheduler_type} with {warmup_epochs} epochs warmup")
+                print(f"[OK] Learning rate scheduler: {self.config.training.scheduler_type} with {warmup_epochs} epochs warmup")
             else:
                 # No warmup, use standard scheduler
                 if self.config.training.scheduler_type == 'cosine':
@@ -239,10 +239,10 @@ class CLIPTrainer:
                     )
                 else:
                     self.scheduler = None
-                print(f"✓ Learning rate scheduler: {self.config.training.scheduler_type} (no warmup)")
+                print(f"[OK] Learning rate scheduler: {self.config.training.scheduler_type} (no warmup)")
         else:
             self.scheduler = None
-            print("✓ No learning rate scheduler")
+            print("[OK] No learning rate scheduler")
 
     def train_epoch(self, train_loader):
         """Train one epoch"""

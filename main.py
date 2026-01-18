@@ -458,8 +458,8 @@ def main():
         model.load_state_dict(state_dict, strict=False)
         model.to(device)
         model.eval()
-        print("✓ Model loaded successfully")
-        print(f"✓ Model can test on ANY dataset (flexible inference)")
+        print("[OK] Model loaded successfully")
+        print(f"[OK] Model can test on ANY dataset (flexible inference)")
 
         # Create trainer for predict()
         from trainers import CLIPTrainer

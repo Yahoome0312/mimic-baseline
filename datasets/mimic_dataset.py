@@ -331,7 +331,7 @@ class MIMICCXRDataLoader:
         # ===== 根据缓存情况选择路径 =====
         if cache_exists:
             print("\n" + "=" * 80)
-            print("✓ Tokenization cache found! Skipping report loading...")
+            print("[OK] Tokenization cache found! Skipping report loading...")
             print("=" * 80)
             print(f"Reports will be loaded from cache during dataset initialization")
             print(f"Cache location: {self.config.paths.tokenized_cache_dir}")
@@ -362,7 +362,7 @@ class MIMICCXRDataLoader:
             reports = valid_data['report'].tolist()
 
             reports_loaded = sum(1 for r in reports if r and r != "")
-            print(f"\n✓ Successfully loaded {reports_loaded}/{len(reports)} reports ({100*reports_loaded/len(reports):.1f}%)")
+            print(f"\n[OK] Successfully loaded {reports_loaded}/{len(reports)} reports ({100*reports_loaded/len(reports):.1f}%)")
             print("=" * 80)
 
         # ===== 构建返回值 =====
