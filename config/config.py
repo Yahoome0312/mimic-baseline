@@ -38,6 +38,11 @@ class ModelConfig:
     model_name: str = r"local-dir:C:\Users\admin\Desktop\mimic-baseline\checkpoints"
     context_length: int = 256
     temperature: float = 0.07  # CLIP loss temperature
+    use_superclip: bool = False
+    cls_loss_weight: float = 1.0
+    cls_head_layers: int = 1
+    cls_head_mlp_ratio: float = 4.0
+    cls_use_patch_tokens: bool = True
 
 
 @dataclass

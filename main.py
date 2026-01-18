@@ -9,7 +9,7 @@ import torch
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import Config
-from models import BiomedCLIPLoader, CLIPFineTune
+from models import BiomedCLIPLoader, CLIPFineTune, SuperCLIPFineTune
 from datasets import MIMICCXRDataLoader, ChestXray14DataLoader, ChestXDet10DataLoader, CheXpertDataLoader
 from trainers import ZeroShotCLIPInference, CLIPTrainer
 from evaluators import ModelEvaluator
@@ -54,6 +54,8 @@ def parse_args():
                        help='Weight decay')
     parser.add_argument('--patience', type=int, default=None,
                        help='Early stopping patience')
+    parser.add_argument('--use_superclip', action='store_true',
+                       help='Enable SuperCLIP-style cls loss during fine-tuning')
 
     # ChestXray14 test set arguments
     parser.add_argument('--test_chestxray14', action='store_true',
@@ -123,8 +125,20 @@ def update_config_from_args(config, args):
         config.training.weight_decay = args.weight_decay
     if args.patience:
         config.training.early_stopping_patience = args.patience
+    if args.use_superclip:
+        config.model.use_superclip = True
 
     return config
+
+
+def get_vocab_size(tokenizer):
+    if hasattr(tokenizer, "vocab_size"):
+        return tokenizer.vocab_size
+    if hasattr(tokenizer, "tokenizer") and hasattr(tokenizer.tokenizer, "vocab_size"):
+        return tokenizer.tokenizer.vocab_size
+    if hasattr(tokenizer, "tokenizer") and hasattr(tokenizer.tokenizer, "get_vocab"):
+        return len(tokenizer.tokenizer.get_vocab())
+    raise ValueError("Unable to infer vocab size from tokenizer.")
 
 
 def run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader, experiment_name=None, threshold=0.0, class_names=None, text_prompts=None):
@@ -159,11 +173,24 @@ def run_zeroshot(config, clip_model, tokenizer, preprocess, test_loader, experim
 def run_finetune(config, clip_model, tokenizer, preprocess, train_loader, val_loader, test_loader, experiment_name=None, skip_test=False, class_names=None, text_prompts=None):
     """Run full fine-tuning with CLIP loss (multi-label)"""
     print("\n" + "=" * 80)
-    print("Starting Fine-Tuning with CLIP Loss")
+    if config.model.use_superclip:
+        print("Starting Fine-Tuning with SuperCLIP Loss")
+    else:
+        print("Starting Fine-Tuning with CLIP Loss")
     print("=" * 80)
 
     # Create fine-tuned model (no class number limitation)
-    model = CLIPFineTune(clip_model)
+    if config.model.use_superclip:
+        vocab_size = get_vocab_size(tokenizer)
+        model = SuperCLIPFineTune(
+            clip_model,
+            vocab_size=vocab_size,
+            cls_head_layers=config.model.cls_head_layers,
+            cls_head_mlp_ratio=config.model.cls_head_mlp_ratio,
+            use_patch_tokens=config.model.cls_use_patch_tokens,
+        )
+    else:
+        model = CLIPFineTune(clip_model)
 
     # Create trainer
     trainer = CLIPTrainer(
@@ -404,9 +431,19 @@ def main():
         print(f"Model path: {args.test_model_path}")
 
         # Create CLIPFineTune model (no class limitation)
-        from models import CLIPFineTune
+        from models import CLIPFineTune, SuperCLIPFineTune
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        model = CLIPFineTune(clip_model)
+        if config.model.use_superclip:
+            vocab_size = get_vocab_size(tokenizer)
+            model = SuperCLIPFineTune(
+                clip_model,
+                vocab_size=vocab_size,
+                cls_head_layers=config.model.cls_head_layers,
+                cls_head_mlp_ratio=config.model.cls_head_mlp_ratio,
+                use_patch_tokens=config.model.cls_use_patch_tokens,
+            )
+        else:
+            model = CLIPFineTune(clip_model)
 
         # Load model weights
         print(f"Loading model on {device}...")

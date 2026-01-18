@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.metrics import f1_score, roc_auc_score
 
-from models import CLIPLoss, CLIPFineTune
+from models import CLIPLoss, CLIPFineTune, SuperCLIPLoss
 from utils import EarlyStopping
 from .inference import clip_inference
 
@@ -116,6 +116,7 @@ class CLIPTrainer:
             self.output_dir,
             f"{self.experiment_name}_best_model.pth" if self.experiment_name else "best_model.pth"
         )
+        self.use_superclip = getattr(config.model, "use_superclip", False)
 
         # Move model to device
         self.model.to(self.device)
@@ -140,7 +141,7 @@ class CLIPTrainer:
         )
 
         # Setup AMP (Automatic Mixed Precision) - always enabled for GPU training
-        self.scaler = torch.cuda.amp.GradScaler()
+        self.scaler = torch.amp.GradScaler('cuda')
         print("✓ AMP (Automatic Mixed Precision) enabled")
 
         # Training history
@@ -157,11 +158,21 @@ class CLIPTrainer:
         temperature = self.config.model.temperature
 
         print("\n" + "=" * 80)
-        print("Setting up loss function: standard")
+        if self.use_superclip:
+            print("Setting up loss function: superclip (cls + clip)")
+        else:
+            print("Setting up loss function: standard")
         print("=" * 80)
 
-        criterion = CLIPLoss(temperature=temperature)
-        print("[OK] Using standard CLIP loss")
+        if self.use_superclip:
+            criterion = SuperCLIPLoss(
+                temperature=temperature,
+                cls_loss_weight=self.config.model.cls_loss_weight,
+            )
+            print("[OK] Using SuperCLIP loss")
+        else:
+            criterion = CLIPLoss(temperature=temperature)
+            print("[OK] Using standard CLIP loss")
         print("=" * 80 + "\n")
         return criterion
 
@@ -238,7 +249,8 @@ class CLIPTrainer:
         self.model.train()
         total_loss = 0
 
-        for images, texts, labels in tqdm(train_loader, desc="Training"):
+        progress = tqdm(train_loader, desc="Training")
+        for step, (images, texts, labels) in enumerate(progress, start=1):
             images = images.to(self.device)
             texts = texts.to(self.device)
             labels = labels.to(self.device)
@@ -247,15 +259,34 @@ class CLIPTrainer:
 
             # Forward pass with mixed precision
             with torch.amp.autocast('cuda'):
-                image_features, text_features = self.model(images, texts)
-                loss = self.criterion(image_features, text_features, labels)
+                model_out = self.model(images, texts)
+                if isinstance(model_out, dict):
+                    loss_out = self.criterion(**model_out, output_dict=True)
+                    loss = sum(loss_out.values())
+                else:
+                    loss_out = None
+                    image_features, text_features = model_out
+                    loss = self.criterion(image_features, text_features, labels)
 
             # Backward pass with gradient scaling
             self.scaler.scale(loss).backward()
             self.scaler.step(self.optimizer)
             self.scaler.update()
 
-            total_loss += loss.item()
+            loss_value = loss.item()
+            total_loss += loss_value
+            avg_loss = total_loss / step
+
+            if loss_out is not None:
+                cls_loss_val = loss_out.get("class_loss")
+                clip_loss_val = loss_out.get("contrastive_loss")
+                progress.set_postfix(
+                    loss=f"{avg_loss:.4f}",
+                    cls=f"{cls_loss_val.item():.4f}" if cls_loss_val is not None else "n/a",
+                    clip=f"{clip_loss_val.item():.4f}" if clip_loss_val is not None else "n/a",
+                )
+            else:
+                progress.set_postfix(loss=f"{avg_loss:.4f}")
 
         avg_loss = total_loss / len(train_loader)
 
@@ -274,17 +305,40 @@ class CLIPTrainer:
         all_text_features = []
 
         with torch.inference_mode():
-            for images, texts, labels in tqdm(val_loader, desc="Validation"):
+            progress = tqdm(val_loader, desc="Validation")
+            for step, (images, texts, labels) in enumerate(progress, start=1):
                 images = images.to(self.device)
                 texts = texts.to(self.device)
                 labels = labels.to(self.device)
 
                 # Forward pass with mixed precision
                 with torch.amp.autocast('cuda'):
-                    image_features, text_features = self.model(images, texts)
-                    loss = self.criterion(image_features, text_features, labels)
+                    model_out = self.model(images, texts)
+                    if isinstance(model_out, dict): #兼容两种模型输出格式的：原来的 CLIPFineTune 返回的是 tuple (image_features, text_features)。新的 SuperCLIPFineTune 返回的是 dict，里面包含 logits/labels/cap_fq/num_samples 等给 SuperCLIPLoss 用的字段
+                        image_features = model_out["image_features"]
+                        text_features = model_out["text_features"]
+                        # 验证阶段只计算对比损失，避免更新词频统计
+                        loss_out = None
+                        loss = self.criterion._clip_loss(image_features, text_features)
+                    else:
+                        loss_out = None
+                        image_features, text_features = model_out
+                        loss = self.criterion(image_features, text_features, labels)
 
-                total_loss += loss.item()
+                loss_value = loss.item()
+                total_loss += loss_value
+                avg_loss = total_loss / step
+
+                if loss_out is not None:
+                    cls_loss_val = loss_out.get("class_loss")
+                    clip_loss_val = loss_out.get("contrastive_loss")
+                    progress.set_postfix(
+                        loss=f"{avg_loss:.4f}",
+                        cls=f"{cls_loss_val.item():.4f}" if cls_loss_val is not None else "n/a",
+                        clip=f"{clip_loss_val.item():.4f}" if clip_loss_val is not None else "n/a",
+                    )
+                else:
+                    progress.set_postfix(loss=f"{avg_loss:.4f}")
 
                 # Collect features for retrieval evaluation (keep on GPU for faster computation)
                 all_image_features.append(image_features)
