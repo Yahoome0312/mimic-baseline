@@ -156,6 +156,18 @@ class CLIPTrainer:
     def _setup_loss_function(self):
         """Setup loss function based on configuration"""
         temperature = self.config.model.temperature
+        pad_id = None
+        cls_id = None
+        sep_id = None
+        unk_id = None
+        mask_id = None
+        if self.tokenizer is not None:
+            tok = getattr(self.tokenizer, "tokenizer", None) or self.tokenizer
+            pad_id = getattr(tok, "pad_token_id", None)
+            cls_id = getattr(tok, "cls_token_id", None)
+            sep_id = getattr(tok, "sep_token_id", None)
+            unk_id = getattr(tok, "unk_token_id", None)
+            mask_id = getattr(tok, "mask_token_id", None)
 
         print("\n" + "=" * 80)
         if self.use_superclip:
@@ -168,6 +180,15 @@ class CLIPTrainer:
             criterion = SuperCLIPLoss(
                 temperature=temperature,
                 cls_loss_weight=self.config.model.cls_loss_weight,
+                pad_id=pad_id,
+                cls_id=cls_id,
+                sep_id=sep_id,
+                unk_id=unk_id,
+                mask_id=mask_id,
+            )
+            print(
+                "[SuperCLIP] token_ids: "
+                f"pad={pad_id}, cls={cls_id}, sep={sep_id}, unk={unk_id}, mask={mask_id}"
             )
             print("[OK] Using SuperCLIP loss")
         else:
@@ -323,8 +344,10 @@ class CLIPTrainer:
                             model_out["num_samples"].clone(),
                             model_out["logits"],
                             model_out["labels"],
-                        )
-                        clip_loss = self.criterion._clip_loss(image_features, text_features)
+                        ) * self.criterion.cls_loss_weight
+                        clip_loss = self.criterion._clip_loss(
+                            image_features, text_features
+                        ) * self.criterion.clip_loss_weight
                         loss_out = {"class_loss": class_loss, "contrastive_loss": clip_loss}
                         loss = class_loss + clip_loss
                     else:

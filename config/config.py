@@ -39,7 +39,7 @@ class ModelConfig:
     context_length: int = 256
     temperature: float = 0.07  # CLIP loss temperature
     use_superclip: bool = False
-    cls_loss_weight: float = 1.0
+    cls_loss_weight: float = 0.1 #修改这里的权重
     cls_head_layers: int = 1
     cls_head_mlp_ratio: float = 4.0
     cls_use_patch_tokens: bool = True
@@ -64,7 +64,7 @@ class TrainingConfig:
     learning_rate_text: float = 5e-5  # Changed to same as image encoder
 
     # Training parameters
-    epochs: int = 15
+    epochs: int = 10
     weight_decay: float = 0.01
     early_stopping_patience: int = 10
 

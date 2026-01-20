@@ -21,7 +21,13 @@ python main.py --method finetune --data_path D:\Data\mimicmini --epochs 2 --batc
 python main.py --method finetune --test_chestxdet10 --experiment_name exp1
 python main.py --method finetune --test_chestxdet10 --experiment_name exp2
 python main.py --method finetune --test_chestxdet10 --experiment_name exp1sup --use_superclip
-python main.py --method finetune --test_chestxdet10 --experiment_name exp1sup --use_superclip 2>&1 | Tee-Object -FilePath .\log\exp1sup.log
-
+python main.py --method finetune --test_chestxdet10 --experiment_name exp2supweight0.5 --use_superclip
+python main.py --method finetune --test_chestxdet10 --experiment_name exp3suplr4 --use_superclip
+python main.py --method finetune --test_chestxdet10 --experiment_name exp4suptoken --use_superclip
+python main.py --method finetune --test_chestxdet10 --experiment_name exp5supweight0.1 --use_superclip
 
 python main.py --test_model_path "results\exp2\exp2_best_model.pth" --test_chexpert
+python main.py --test_model_path "results\exp1sup\exp1sup_best_model.pth" --test_chexpert --use_superclip
+python main.py --test_model_path "results\exp2supweight0.5\exp2supweight0.5_best_model.pth" --test_chexpert --use_superclip
+python main.py --test_model_path "results\exp4suptoken\exp4suptoken_best_model.pth" --test_chexpert --use_superclip
+python main.py --test_model_path "results\exp5supweight0.1\exp5supweight0.1_best_model.pth" --test_chestxdet10 --use_superclip

@@ -221,11 +221,26 @@ class MixClsHead(nn.Module):
 class SuperCLIPLoss(nn.Module):
     """SuperCLIP loss = cls bag-of-words loss + CLIP contrastive loss."""
     # SuperCLIP损失函数，结合了分类的bag-of-words损失和CLIP对比损失
-    def __init__(self, temperature: float = 0.07, cls_loss_weight: float = 1.0, clip_loss_weight: float = 1.0):
+    def __init__(
+        self,
+        temperature: float = 0.07,
+        cls_loss_weight: float = 1.0,
+        clip_loss_weight: float = 1.0,
+        pad_id: Optional[int] = None,
+        cls_id: Optional[int] = None,
+        sep_id: Optional[int] = None,
+        unk_id: Optional[int] = None,
+        mask_id: Optional[int] = None,
+    ):
         super().__init__()
         self.temperature = temperature
         self.cls_loss_weight = cls_loss_weight
         self.clip_loss_weight = clip_loss_weight
+        self.pad_id = pad_id
+        self.cls_id = cls_id
+        self.sep_id = sep_id
+        self.unk_id = unk_id
+        self.mask_id = mask_id
 
     # 重新加权目标函数，基于类别频率调整目标分布
     def _reweight_targets(self, cap_fq: torch.Tensor, num_samples: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
@@ -255,8 +270,14 @@ class SuperCLIPLoss(nn.Module):
         batch_size, vocab_size = logits.shape
         targets = torch.zeros(batch_size, vocab_size, dtype=torch.float32, device=logits.device)
         targets.scatter_(dim=1, index=labels.long(), value=1.0)
+        for token_id in (self.pad_id, self.cls_id, self.sep_id, self.unk_id, self.mask_id):
+            if token_id is None:
+                continue
+            if 0 <= token_id < vocab_size:
+                targets[:, token_id] = 0
         targets = self._reweight_targets(cap_fq, num_samples, targets)
-        targets = F.normalize(targets, p=1, dim=1)
+        row_sums = targets.sum(dim=1, keepdim=True)
+        targets = targets / row_sums.clamp_min(1.0)
         return -(F.log_softmax(logits, dim=1) * targets).sum(dim=1).mean()
 
     def _clip_loss(self, image_features: torch.Tensor, text_features: torch.Tensor) -> torch.Tensor:
@@ -358,6 +379,7 @@ class SuperCLIPFineTune(nn.Module):
                     image_indices=1,
                     image_output_fmt="NLC",
                     image_output_extra_tokens=False,
+                    normalize_intermediates=True,
                 )
                 tokens = out.get("image_intermediates")
                 if isinstance(tokens, list) and tokens:
